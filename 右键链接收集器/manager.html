@@ -27,8 +27,11 @@
     <!-- 视图切换 -->
     <div class="view-tabs">
       <button class="view-tab active" data-view="all">全部</button>
+      <button class="view-tab" data-view="byGroup">按分组</button>
       <button class="view-tab" data-view="byDomain">按域名分组</button>
       <button class="view-tab" data-view="unvisited">未访问</button>
+      <button id="toggleGroupsBtn" class="view-tab view-tab-action">📂 折叠分组</button>
+      <button id="manageGroupsBtn" class="view-tab view-tab-special">📁 管理分组</button>
     </div>
     
     <!-- 工具栏 -->
@@ -51,6 +54,26 @@
         <div class="empty-icon">📭</div>
         <p>还没有保存任何链接</p>
         <p class="empty-hint">右键点击网页链接，选择"保存链接到收集器"</p>
+      </div>
+    </div>
+  </div>
+  
+  <!-- 分组管理弹窗 -->
+  <div id="groupModal" class="modal">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h2>📁 管理分组</h2>
+        <button class="modal-close" id="closeGroupModal">✕</button>
+      </div>
+      <div class="modal-body">
+        <div class="group-list" id="groupList">
+          <!-- 分组列表将动态插入 -->
+        </div>
+        <div class="add-group-section">
+          <input type="text" id="newGroupName" placeholder="输入新分组名称..." maxlength="20" />
+          <input type="color" id="newGroupColor" value="#2196F3" title="选择颜色" />
+          <button id="addGroupBtn" class="btn btn-primary">➕ 添加分组</button>
+        </div>
       </div>
     </div>
   </div>
