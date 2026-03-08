@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>多链接收集器</title>
+  <link rel="stylesheet" href="popup.css" />
+</head>
+<body>
+  <header class="header">
+    <h1>🔗 多链接收集器</h1>
+    <div class="theme-controls" title="点击切换: 自动 → 亮色 → 暗色">
+      <button id="themeBtn" class="theme-btn">A</button>
+      <span id="themeLabel" class="theme-label">自动</span>
+    </div>
+  </header>
+
+  <div class="top-controls">
+    <input id="searchInput" placeholder="搜索标题或网址..." />
+  </div>
+
+  <div class="action-row">
+    <button id="copyAllBtn">📋 复制全部</button>
+
+    <div class="download-wrapper">
+      <button id="downloadBtn">⬇️ 下载</button>
+      <div id="downloadMenu" class="download-menu" aria-hidden="true">
+        <button class="download-option" data-format="txt">下载为 TXT</button>
+        <button class="download-option" data-format="csv">下载为 CSV</button>
+        <button class="download-option" data-format="html">下载为 HTML</button>
+        <button class="download-option" data-format="doc">下载为 Word (.doc)</button>
+      </div>
+    </div>
+
+    <button id="openManagerBtn">📊 管理页面</button>
+    <button id="clearAllBtn" class="danger">🗑️ 清空全部</button>
+  </div>
+
+  <div id="countLine" class="count-line"></div>
+
+  <div id="linksContainer" class="links-container"></div>
+
+  <script src="popup.js"></script>
+</body>
+</html>

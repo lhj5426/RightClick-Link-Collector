@@ -1,0 +1,23 @@
+{
+  "manifest_version": 3,
+  "name": "右键链接收集器",
+  "version": "2026.03.09",
+  "description": "在不打开网页的情况下右键保存链接,可以导出HTML和TXT",
+  "permissions": ["storage", "contextMenus", "downloads", "activeTab"],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "action": {
+    "default_icon": {
+      "16": "icon.png",
+      "48": "icon.png",
+      "128": "icon.png"
+    }
+  },
+  "icons": {
+    "16": "icon.png",
+    "48": "icon.png",
+    "128": "icon.png"
+  },
+  "host_permissions": []
+}
