@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>右键链接收集器 - 管理页面</title>
+  <link rel="stylesheet" href="manager.css" />
+</head>
+<body>
+  <div class="container">
+    <!-- 头部 -->
+    <header class="header">
+      <div class="header-left">
+        <h1>🔗 右键链接收集器</h1>
+        <div class="stats">
+          <span id="totalCount" class="stat-badge">0</span>
+          <span class="stat-label">个链接</span>
+        </div>
+        <button id="copyAllBtn" class="btn btn-secondary">📋 复制全部</button>
+        <button id="clearAllBtn" class="btn btn-danger">🗑️ 清空全部</button>
+      </div>
+      <div class="header-right">
+        <button id="themeBtn" class="theme-btn" title="切换主题">🌙</button>
+      </div>
+    </header>
+    
+    <!-- 视图切换 -->
+    <div class="view-tabs">
+      <button class="view-tab active" data-view="all">全部</button>
+      <button class="view-tab" data-view="byDomain">按域名分组</button>
+      <button class="view-tab" data-view="unvisited">未访问</button>
+    </div>
+    
+    <!-- 工具栏 -->
+    <div class="toolbar">
+      <div class="search-box">
+        <input type="text" id="searchInput" placeholder="搜索链接..." />
+      </div>
+      <div class="toolbar-actions">
+        <button id="saveHtmlBtn" class="btn btn-primary">💾 保存HTML</button>
+        <button id="saveTxtBtn" class="btn btn-secondary">📄 保存TXT</button>
+      </div>
+    </div>
+    
+    <!-- 链接列表 -->
+    <div class="links-section">
+      <div id="linksList" class="links-list">
+        <!-- 链接项将动态插入这里 -->
+      </div>
+      <div id="emptyState" class="empty-state">
+        <div class="empty-icon">📭</div>
+        <p>还没有保存任何链接</p>
+        <p class="empty-hint">右键点击网页链接，选择"保存链接到收集器"</p>
+      </div>
+    </div>
+  </div>
+  
+  <script src="manager.js"></script>
+</body>
+</html>
