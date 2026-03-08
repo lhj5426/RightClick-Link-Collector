@@ -31,7 +31,7 @@
       <button class="view-tab" data-view="byDomain">按域名分组</button>
       <button class="view-tab" data-view="unvisited">未访问</button>
       <button id="toggleGroupsBtn" class="view-tab view-tab-action">📂 折叠分组</button>
-      <button id="manageGroupsBtn" class="view-tab view-tab-special">📁 管理分组</button>
+      <button id="manageGroupsBtn" class="view-tab view-tab-special">📁 管理分组 <span id="groupCountDisplay" class="group-count-display">当前有0个分组</span></button>
     </div>
     
     <!-- 工具栏 -->
@@ -62,7 +62,7 @@
   <div id="groupModal" class="modal">
     <div class="modal-content">
       <div class="modal-header">
-        <h2>📁 管理分组</h2>
+        <h2>📁 管理分组 <span id="groupCountBadge" class="group-count-badge">0</span></h2>
         <button class="modal-close" id="closeGroupModal">✕</button>
       </div>
       <div class="modal-body">

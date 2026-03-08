@@ -109,12 +109,22 @@ document.addEventListener("DOMContentLoaded", () => {
       allGroups = Array.isArray(res.groups) ? res.groups : DEFAULT_GROUPS;
       renderLinks();
       updateCount();
+      updateGroupCount();
     });
   }
   
   // 更新计数
   function updateCount() {
     totalCount.textContent = allLinks.length;
+    updateGroupCount();
+  }
+  
+  // 更新分组数量显示
+  function updateGroupCount() {
+    const groupCountDisplay = document.getElementById("groupCountDisplay");
+    if (groupCountDisplay) {
+      groupCountDisplay.textContent = `当前有${allGroups.length}个分组`;
+    }
   }
   
   // 渲染链接
@@ -1091,6 +1101,12 @@ document.addEventListener("DOMContentLoaded", () => {
   function renderGroupList() {
     groupList.innerHTML = "";
     
+    // 更新弹窗标题的分组数量
+    const groupCountBadge = document.getElementById("groupCountBadge");
+    if (groupCountBadge) {
+      groupCountBadge.textContent = allGroups.length;
+    }
+    
     allGroups.forEach((group, index) => {
       const linkCount = allLinks.filter(link => link.groupId === group.id).length;
       
@@ -1194,6 +1210,7 @@ document.addEventListener("DOMContentLoaded", () => {
       renderGroupList();
       updateContextMenus();
       renderLinks();
+      updateGroupCount();
     });
   });
   
@@ -1245,6 +1262,7 @@ document.addEventListener("DOMContentLoaded", () => {
           renderGroupList();
           updateContextMenus();
           renderLinks();
+          updateGroupCount();
         });
       });
     } else {
@@ -1257,6 +1275,7 @@ document.addEventListener("DOMContentLoaded", () => {
         renderGroupList();
         updateContextMenus();
         renderLinks();
+        updateGroupCount();
       });
     }
   }
