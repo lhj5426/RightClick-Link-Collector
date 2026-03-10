@@ -225,10 +225,18 @@ chrome.contextMenus.onClicked.addListener((info, tab) => {
     chrome.storage.local.get({ links: [] }, (res) => {
       const links = Array.isArray(res.links) ? res.links : [];
       links.unshift(item); // newest-first
+      
+      // 立即更新角标（不等待存储）
+      const count = links.length;
+      if (count > 0) {
+        chrome.action.setBadgeText({ text: String(Math.min(999, count)) });
+        chrome.action.setBadgeBackgroundColor({ color: '#2196F3' });
+        chrome.action.setBadgeTextColor({ color: '#FFFFFF' });
+      }
+      
+      // 异步保存到存储
       chrome.storage.local.set({ links }, () => {
         console.log("Saved item:", item);
-        // 更新角标
-        updateBadge();
       });
     });
   } catch (err) {
