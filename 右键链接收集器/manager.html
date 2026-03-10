@@ -31,6 +31,7 @@
       <button class="view-tab" data-view="byDomain">按域名分组</button>
       <button class="view-tab" data-view="unvisited">未访问</button>
       <button id="toggleGroupsBtn" class="view-tab view-tab-action">📂 折叠分组</button>
+      <button id="byDateBtn" class="view-tab view-tab-date">📅 按日期分组</button>
       <button id="manageGroupsBtn" class="view-tab view-tab-special">📁 管理分组 <span id="groupCountDisplay" class="group-count-display">当前有0个分组</span></button>
     </div>
     
@@ -40,6 +41,8 @@
         <input type="text" id="searchInput" placeholder="搜索链接..." />
       </div>
       <div class="toolbar-actions">
+        <button id="sortBtn" class="btn btn-secondary">⏱️ 按时间排序</button>
+        <button id="filterDuplicateBtn" class="btn btn-secondary">🔍 过滤重复</button>
         <button id="saveHtmlBtn" class="btn btn-primary">💾 保存HTML</button>
         <button id="saveTxtBtn" class="btn btn-secondary">📄 保存TXT</button>
         <button id="exportDataBtn" class="btn btn-primary">📦 导出数据</button>

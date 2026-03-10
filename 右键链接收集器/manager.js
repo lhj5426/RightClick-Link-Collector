@@ -7,6 +7,7 @@ let allGroups = [];
 let themeMode = "auto";
 let currentView = "all";
 let groupsCollapsed = false;
+let sortOrder = "oldest"; // "oldest" 旧→新（默认），"newest" 新→旧
 const STORAGE_KEY = 'tabSaverVisitedLinks';
 const DEFAULT_GROUPS = [];
 
@@ -141,6 +142,13 @@ document.addEventListener("DOMContentLoaded", () => {
       );
     }
     
+    // 按时间排序
+    visible = visible.sort((a, b) => {
+      const timeA = new Date(a.date || 0).getTime();
+      const timeB = new Date(b.date || 0).getTime();
+      return sortOrder === "oldest" ? timeA - timeB : timeB - timeA;
+    });
+    
     if (visible.length === 0) {
       linksList.innerHTML = "";
       emptyState.classList.remove("hidden");
@@ -156,6 +164,8 @@ document.addEventListener("DOMContentLoaded", () => {
       renderByGroupView(visible, visited);
     } else if (currentView === "byDomain") {
       renderByDomainView(visible, visited);
+    } else if (currentView === "byDate") {
+      renderByDateView(visible, visited);
     } else if (currentView === "unvisited") {
       renderUnvisitedView(visible, visited);
     }
@@ -196,7 +206,14 @@ document.addEventListener("DOMContentLoaded", () => {
       const content = document.createElement("div");
       content.className = "group-content";
       
-      groups[domain].forEach((link, index) => {
+      // 组内按时间排序
+      const sortedLinks = groups[domain].sort((a, b) => {
+        const timeA = new Date(a.date || 0).getTime();
+        const timeB = new Date(b.date || 0).getTime();
+        return sortOrder === "oldest" ? timeA - timeB : timeB - timeA;
+      });
+      
+      sortedLinks.forEach((link, index) => {
         const card = createLinkCard(link, index + 1, visited);
         content.appendChild(card);
       });
@@ -233,7 +250,14 @@ document.addEventListener("DOMContentLoaded", () => {
       const content = document.createElement("div");
       content.className = "group-content";
       
-      globalLinks.forEach((link, index) => {
+      // 组内按时间排序
+      const sortedLinks = globalLinks.sort((a, b) => {
+        const timeA = new Date(a.date || 0).getTime();
+        const timeB = new Date(b.date || 0).getTime();
+        return sortOrder === "oldest" ? timeA - timeB : timeB - timeA;
+      });
+      
+      sortedLinks.forEach((link, index) => {
         const card = createLinkCard(link, index + 1, visited);
         content.appendChild(card);
       });
@@ -269,7 +293,14 @@ document.addEventListener("DOMContentLoaded", () => {
       const content = document.createElement("div");
       content.className = "group-content";
       
-      groupLinks.forEach((link, index) => {
+      // 组内按时间排序
+      const sortedLinks = groupLinks.sort((a, b) => {
+        const timeA = new Date(a.date || 0).getTime();
+        const timeB = new Date(b.date || 0).getTime();
+        return sortOrder === "oldest" ? timeA - timeB : timeB - timeA;
+      });
+      
+      sortedLinks.forEach((link, index) => {
         const card = createLinkCard(link, index + 1, visited);
         content.appendChild(card);
       });
@@ -292,6 +323,67 @@ document.addEventListener("DOMContentLoaded", () => {
     unvisited.forEach((link, index) => {
       const card = createLinkCard(link, index + 1, visited);
       linksList.appendChild(card);
+    });
+  }
+  
+  // 按日期分组渲染
+  function renderByDateView(links, visited) {
+    const dateGroups = {};
+    
+    // 按日期分组
+    links.forEach(link => {
+      const dateStr = link.date || '';
+      // 提取日期部分 YYYY/MM/DD
+      const dateMatch = dateStr.match(/(\d{4})\/(\d{2})\/(\d{2})/);
+      if (dateMatch) {
+        const [, year, month, day] = dateMatch;
+        const dateKey = `${year}/${month}/${day}`;
+        const dateDisplay = `${month}月${day}日`;
+        
+        if (!dateGroups[dateKey]) {
+          dateGroups[dateKey] = { display: dateDisplay, links: [] };
+        }
+        dateGroups[dateKey].links.push(link);
+      }
+    });
+    
+    // 按日期排序（从新到旧）
+    const sortedDates = Object.keys(dateGroups).sort().reverse();
+    
+    sortedDates.forEach(dateKey => {
+      const group = dateGroups[dateKey];
+      const section = document.createElement("div");
+      section.className = "group-section";
+      
+      const header = document.createElement("div");
+      header.className = "group-header";
+      header.innerHTML = `
+        <span>📅 ${group.display} (${group.links.length})</span>
+        <span class="group-toggle">▾</span>
+      `;
+      header.onclick = () => {
+        header.classList.toggle("collapsed");
+        content.classList.toggle("collapsed");
+      };
+      
+      const content = document.createElement("div");
+      content.className = "group-content";
+      
+      // 组内按时间排序
+      const sortedLinks = group.links.sort((a, b) => {
+        const timeA = new Date(a.date || 0).getTime();
+        const timeB = new Date(b.date || 0).getTime();
+        return sortOrder === "oldest" ? timeA - timeB : timeB - timeA;
+      });
+      
+      sortedLinks.forEach((link, index) => {
+        const card = createLinkCard(link, index + 1, visited);
+        content.appendChild(card);
+      });
+      
+      section.appendChild(header);
+      section.appendChild(content);
+      linksList.appendChild(section);
     });
   }
   
@@ -326,12 +418,38 @@ document.addEventListener("DOMContentLoaded", () => {
       groupBadge = `<span class="group-badge" style="background: #9E9E9E">无分组</span>`;
     }
     
+    // 检查是否是重复链接
+    const duplicateLinks = allLinks.filter(l => l.url === link.url);
+    const isDuplicate = duplicateLinks.length > 1;
+    let duplicateBadge = '';
+    
+    if (isDuplicate) {
+      // 获取所有重复链接的ID
+      const duplicateIds = duplicateLinks.map(l => l.id);
+      
+      // 找到当前链接在重复列表中的位置
+      const currentPos = duplicateIds.indexOf(link.id);
+      
+      // 获取其他重复链接的序号
+      const otherIndices = [];
+      duplicateIds.forEach((id, pos) => {
+        if (pos !== currentPos) {
+          // 找到该ID在allLinks中的位置
+          const linkIndex = allLinks.findIndex(l => l.id === id);
+          otherIndices.push(linkIndex + 1);
+        }
+      });
+      
+      const otherStr = otherIndices.sort((a, b) => a - b).join('、');
+      duplicateBadge = `<span class="duplicate-badge">🔗 与${otherStr}重复</span>`;
+    }
+    
     card.innerHTML = `
       <input type="checkbox" class="link-checkbox" data-id="${link.id}" style="margin-right: 10px; cursor: pointer;">
       <div class="link-index">${index}</div>
       <div class="link-content">
         <a href="${escapeHtml(link.url)}" class="link-url" target="_blank" data-url="${escapeHtml(link.url)}">${escapeHtml(link.url)}</a>
-        <div class="link-source">来源: ${escapeHtml(link.title || link.page || '未知')} ${groupBadge}</div>
+        <div class="link-source">来源: ${escapeHtml(link.title || link.page || '未知')} ${groupBadge} ${duplicateBadge}</div>
         <div class="link-date">保存时间: ${escapeHtml(link.date || '')}</div>
         ${visitInfo}
         <div class="link-actions">
@@ -468,8 +586,8 @@ document.addEventListener("DOMContentLoaded", () => {
   // 视图切换
   viewTabs.forEach(tab => {
     tab.addEventListener("click", () => {
-      // 管理分组按钮和折叠按钮特殊处理
-      if (tab.id === "manageGroupsBtn" || tab.id === "toggleGroupsBtn") {
+      // 管理分组按钮、折叠按钮和按日期分组按钮特殊处理
+      if (tab.id === "manageGroupsBtn" || tab.id === "toggleGroupsBtn" || tab.id === "byDateBtn") {
         return; // 不切换视图
       }
       
@@ -479,6 +597,17 @@ document.addEventListener("DOMContentLoaded", () => {
       renderLinks();
     });
   });
+  
+  // 按日期分组按钮
+  const byDateBtn = document.getElementById("byDateBtn");
+  if (byDateBtn) {
+    byDateBtn.addEventListener("click", () => {
+      viewTabs.forEach(t => t.classList.remove("active"));
+      byDateBtn.classList.add("active");
+      currentView = "byDate";
+      renderLinks();
+    });
+  }
   
   // 折叠/展开所有分组
   toggleGroupsBtn.addEventListener("click", () => {
@@ -571,6 +700,19 @@ document.addEventListener("DOMContentLoaded", () => {
   if (batchMoveBtn) batchMoveBtn.addEventListener("click", showBatchMoveDialog);
   if (batchDeleteBtn) batchDeleteBtn.addEventListener("click", batchDeleteLinks);
   if (batchCancelBtn) batchCancelBtn.addEventListener("click", cancelBatchSelection);
+  
+  // 排序按钮
+  const sortBtn = document.getElementById("sortBtn");
+  if (sortBtn) {
+    // 初始化按钮文本
+    sortBtn.textContent = "⏱️ 按时间排序(旧→新)";
+    
+    sortBtn.addEventListener("click", () => {
+      sortOrder = sortOrder === "oldest" ? "newest" : "oldest";
+      sortBtn.textContent = sortOrder === "oldest" ? "⏱️ 按时间排序(旧→新)" : "⏱️ 按时间排序(新→旧)";
+      renderLinks();
+    });
+  }
   
   // 导出链接（复用popup.js的导出逻辑）
   function exportLinks(format) {
@@ -717,6 +859,7 @@ document.addEventListener("DOMContentLoaded", () => {
           updateCount();
           updateGroupCount();
           updateBadge();
+          updateContextMenus(); // 更新右键菜单
           alert(`成功导入 ${(data.links || []).length} 个链接和 ${(data.groups || []).length} 个分组`);
         });
       } catch (err) {
@@ -1580,3 +1723,84 @@ document.addEventListener("DOMContentLoaded", () => {
 });
 
 
+
+  // 标记重复链接
+  function markDuplicates() {
+    const urlMap = {};
+    allLinks.forEach(link => {
+      if (!urlMap[link.url]) {
+        urlMap[link.url] = [];
+      }
+      urlMap[link.url].push(link.id);
+    });
+    
+    const duplicateIds = [];
+    Object.values(urlMap).forEach(ids => {
+      if (ids.length > 1) {
+        duplicateIds.push(...ids);
+      }
+    });
+    
+    if (duplicateIds.length === 0) {
+      alert('没有重复的链接');
+      return;
+    }
+    
+    // 自动选中所有重复链接
+    document.querySelectorAll('.link-checkbox').forEach(cb => {
+      if (duplicateIds.includes(parseInt(cb.dataset.id))) {
+        cb.checked = true;
+      }
+    });
+    
+    updateBatchToolbar();
+    alert(`找到 ${duplicateIds.length} 个重复链接，已自动选中`);
+  }
+  
+  // 过滤重复链接（只显示重复的）
+  let showingDuplicatesOnly = false;
+  function filterDuplicates() {
+    showingDuplicatesOnly = !showingDuplicatesOnly;
+    
+    if (showingDuplicatesOnly) {
+      // 计算重复的URL
+      const urlMap = {};
+      allLinks.forEach(link => {
+        if (!urlMap[link.url]) {
+          urlMap[link.url] = 0;
+        }
+        urlMap[link.url]++;
+      });
+      
+      // 隐藏非重复链接
+      document.querySelectorAll('.link-card').forEach(card => {
+        const linkId = parseInt(card.dataset.linkId);
+        const link = allLinks.find(l => l.id === linkId);
+        if (link && urlMap[link.url] <= 1) {
+          card.style.display = 'none';
+        } else {
+          card.style.display = '';
+        }
+      });
+      
+      document.getElementById('filterDuplicateBtn').textContent = '🔍 显示全部';
+    } else {
+      // 显示所有链接
+      document.querySelectorAll('.link-card').forEach(card => {
+        card.style.display = '';
+      });
+      document.getElementById('filterDuplicateBtn').textContent = '🔍 过滤重复';
+    }
+  }
+  
+  // 绑定按钮事件
+  const markDuplicateBtn = document.getElementById('markDuplicateBtn');
+  const filterDuplicateBtn = document.getElementById('filterDuplicateBtn');
+  
+  if (markDuplicateBtn) {
+    markDuplicateBtn.addEventListener('click', markDuplicates);
+  }
+  
+  if (filterDuplicateBtn) {
+    filterDuplicateBtn.addEventListener('click', filterDuplicates);
+  }

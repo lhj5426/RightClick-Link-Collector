@@ -155,6 +155,18 @@ h1 {
   color: white;
 }
 
+.view-tab-date {
+  background: #00BCD4;
+  border-color: #00BCD4;
+  color: white;
+}
+
+.view-tab-date:hover {
+  background: #0097A7;
+  border-color: #0097A7;
+  color: white;
+}
+
 .group-count-display {
   font-size: 14px;
   font-weight: 500;
@@ -754,5 +766,16 @@ body.dark .download-option:hover {
   font-size: 12px;
   font-weight: 500;
   color: white;
+  margin-left: 8px;
+}
+
+.duplicate-badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 12px;
+  font-size: 12px;
+  font-weight: 500;
+  color: white;
+  background: #FF5722;
   margin-left: 8px;
 }
