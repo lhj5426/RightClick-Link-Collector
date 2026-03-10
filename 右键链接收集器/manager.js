@@ -299,6 +299,7 @@ document.addEventListener("DOMContentLoaded", () => {
   function createLinkCard(link, index, visited) {
     const card = document.createElement("div");
     card.className = "link-card";
+    card.dataset.linkId = link.id;
     
     const visitData = visited[link.url];
     const visitCount = visitData ? visitData.count : 0;
@@ -326,6 +327,7 @@ document.addEventListener("DOMContentLoaded", () => {
     }
     
     card.innerHTML = `
+      <input type="checkbox" class="link-checkbox" data-id="${link.id}" style="margin-right: 10px; cursor: pointer;">
       <div class="link-index">${index}</div>
       <div class="link-content">
         <a href="${escapeHtml(link.url)}" class="link-url" target="_blank" data-url="${escapeHtml(link.url)}">${escapeHtml(link.url)}</a>
@@ -339,6 +341,10 @@ document.addEventListener("DOMContentLoaded", () => {
         </div>
       </div>
     `;
+    
+    // 复选框事件
+    const checkbox = card.querySelector('.link-checkbox');
+    checkbox.addEventListener('change', updateBatchToolbar);
     
     // 点击链接记录访问(左键和中键都记录)
     const linkEl = card.querySelector(".link-url");
@@ -394,21 +400,22 @@ document.addEventListener("DOMContentLoaded", () => {
     
     const dialog = document.createElement('div');
     dialog.className = 'modal show';
+    dialog.style.zIndex = '10000';
     dialog.innerHTML = `
-      <div class="modal-content" style="max-width: 400px;">
+      <div class="modal-content" style="max-width: 400px; z-index: 10001;">
         <div class="modal-header">
           <h2>移动链接到分组</h2>
-          <button class="modal-close" onclick="this.closest('.modal').remove()">✕</button>
+          <button class="modal-close" id="moveDialogClose">✕</button>
         </div>
         <div class="modal-body">
           <p style="margin-bottom: 15px; color: var(--text-muted); font-size: 14px;">
             ${escapeHtml(link.url.substring(0, 60))}${link.url.length > 60 ? '...' : ''}
           </p>
-          <select id="moveToGroup" style="width: 100%; padding: 10px; border: 2px solid var(--border); border-radius: 6px; font-size: 14px; margin-bottom: 15px;">
+          <select id="moveToGroup" style="width: 100%; padding: 10px; border: 2px solid var(--border); border-radius: 6px; font-size: 14px; margin-bottom: 15px; position: relative; z-index: 10002;">
             ${options}
           </select>
-          <div style="display: flex; gap: 10px; justify-content: flex-end;">
-            <button class="btn btn-secondary" onclick="this.closest('.modal').remove()">取消</button>
+          <div style="display: flex; gap: 10px; justify-content: flex-end; position: relative; z-index: 10002;">
+            <button class="btn btn-secondary" id="moveDialogCancel">取消</button>
             <button class="btn btn-primary" id="confirmMove">确定</button>
           </div>
         </div>
@@ -417,12 +424,29 @@ document.addEventListener("DOMContentLoaded", () => {
     
     document.body.appendChild(dialog);
     
-    dialog.querySelector('#confirmMove').addEventListener('click', () => {
+    // 关闭按钮
+    const closeBtn = dialog.querySelector('#moveDialogClose');
+    closeBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      dialog.remove();
+    });
+    
+    // 取消按钮
+    const cancelBtn = dialog.querySelector('#moveDialogCancel');
+    cancelBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      dialog.remove();
+    });
+    
+    // 确定按钮
+    const confirmBtn = dialog.querySelector('#confirmMove');
+    confirmBtn.addEventListener('click', () => {
       const newGroupId = dialog.querySelector('#moveToGroup').value || null;
       moveLinkToGroup(linkId, newGroupId);
       dialog.remove();
     });
     
+    // 点击背景关闭
     dialog.addEventListener('click', (e) => {
       if (e.target === dialog) {
         dialog.remove();
@@ -539,6 +563,15 @@ document.addEventListener("DOMContentLoaded", () => {
     exportLinks("txt");
   });
   
+  // 批量操作按钮
+  const batchMoveBtn = document.getElementById("batchMoveBtn");
+  const batchDeleteBtn = document.getElementById("batchDeleteBtn");
+  const batchCancelBtn = document.getElementById("batchCancelBtn");
+  
+  if (batchMoveBtn) batchMoveBtn.addEventListener("click", showBatchMoveDialog);
+  if (batchDeleteBtn) batchDeleteBtn.addEventListener("click", batchDeleteLinks);
+  if (batchCancelBtn) batchCancelBtn.addEventListener("click", cancelBatchSelection);
+  
   // 导出链接（复用popup.js的导出逻辑）
   function exportLinks(format) {
     if (allLinks.length === 0) {
@@ -608,6 +641,113 @@ document.addEventListener("DOMContentLoaded", () => {
     a.download = filename;
     a.click();
     setTimeout(() => URL.revokeObjectURL(url), 1500);
+  }
+  
+  // 导出数据为JSON（用于扩展间同步）
+  function exportData() {
+    const data = {
+      version: '1.0',
+      timestamp: new Date().toISOString(),
+      links: allLinks,
+      groups: allGroups
+    };
+    
+    const filename = `链接收集器数据_${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}-${String(new Date().getDate()).padStart(2, '0')}.json`;
+    downloadBlob(JSON.stringify(data, null, 2), filename, 'application/json');
+  }
+  
+  // 导入数据从JSON
+  function importData(file) {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      try {
+        const data = JSON.parse(e.target.result);
+        
+        // 验证数据格式
+        if (!data.links || !Array.isArray(data.links)) {
+          alert('无效的数据格式');
+          return;
+        }
+        
+        // 询问是否覆盖或合并
+        const choice = confirm('是否覆盖现有数据？\n点击"确定"覆盖，点击"取消"合并');
+        
+        if (choice) {
+          // 覆盖模式
+          allLinks = data.links || [];
+          allGroups = data.groups || [];
+        } else {
+          // 合并模式 - 避免ID冲突
+          const maxLinkId = Math.max(...allLinks.map(l => l.id || 0), 0);
+          const maxGroupId = Math.max(...allGroups.map(g => g.id || 0), 0);
+          
+          // 重新分配ID
+          const importedLinks = (data.links || []).map((link, idx) => ({
+            ...link,
+            id: maxLinkId + idx + 1
+          }));
+          
+          const importedGroups = (data.groups || []).map((group, idx) => ({
+            ...group,
+            id: maxGroupId + idx + 1
+          }));
+          
+          // 更新导入的链接中的groupId引用
+          const oldGroupIdMap = {};
+          (data.groups || []).forEach((oldGroup, idx) => {
+            oldGroupIdMap[oldGroup.id] = importedGroups[idx].id;
+          });
+          
+          importedLinks.forEach(link => {
+            if (link.groupId && oldGroupIdMap[link.groupId]) {
+              link.groupId = oldGroupIdMap[link.groupId];
+            }
+          });
+          
+          allLinks = [...allLinks, ...importedLinks];
+          allGroups = [...allGroups, ...importedGroups];
+        }
+        
+        // 保存到存储
+        chrome.storage.local.set({ 
+          links: allLinks,
+          groups: allGroups
+        }, () => {
+          renderLinks();
+          updateCount();
+          updateGroupCount();
+          updateBadge();
+          alert(`成功导入 ${(data.links || []).length} 个链接和 ${(data.groups || []).length} 个分组`);
+        });
+      } catch (err) {
+        alert('导入失败：' + err.message);
+      }
+    };
+    reader.readAsText(file);
+  }
+  
+  // 绑定导入导出按钮事件
+  const exportDataBtn = document.getElementById('exportDataBtn');
+  const importDataBtn = document.getElementById('importDataBtn');
+  const importFileInput = document.getElementById('importFileInput');
+  
+  if (exportDataBtn) {
+    exportDataBtn.addEventListener('click', exportData);
+  }
+  
+  if (importDataBtn) {
+    importDataBtn.addEventListener('click', () => {
+      importFileInput.click();
+    });
+  }
+  
+  if (importFileInput) {
+    importFileInput.addEventListener('change', (e) => {
+      if (e.target.files.length > 0) {
+        importData(e.target.files[0]);
+        e.target.value = ''; // 重置input
+      }
+    });
   }
   
   // 生成完整HTML（完全复刻Export Tabs样式）
@@ -1297,6 +1437,146 @@ document.addEventListener("DOMContentLoaded", () => {
   
   // ========== 分组管理功能结束 ==========
   
+  // 更新批量操作工具栏
+  function updateBatchToolbar() {
+    const checkboxes = document.querySelectorAll('.link-checkbox:checked');
+    const batchToolbar = document.getElementById('batchToolbar');
+    const batchCount = document.getElementById('batchCount');
+    
+    if (checkboxes.length > 0) {
+      batchToolbar.style.display = 'flex';
+      batchCount.textContent = `已选择 ${checkboxes.length} 个`;
+    } else {
+      batchToolbar.style.display = 'none';
+    }
+  }
+  
+  // 获取选中的链接ID
+  function getSelectedLinkIds() {
+    const checkboxes = document.querySelectorAll('.link-checkbox:checked');
+    return Array.from(checkboxes).map(cb => parseInt(cb.dataset.id));
+  }
+  
+  // 批量移动
+  function showBatchMoveDialog() {
+    const selectedIds = getSelectedLinkIds();
+    if (selectedIds.length === 0) {
+      alert('请先选择要移动的链接');
+      return;
+    }
+    
+    let options = '<option value="">全局（无分组）</option>';
+    allGroups.forEach(group => {
+      options += `<option value="${group.id}">${group.name}</option>`;
+    });
+    
+    const dialog = document.createElement('div');
+    dialog.className = 'modal show';
+    dialog.style.zIndex = '10000';
+    dialog.innerHTML = `
+      <div class="modal-content" style="max-width: 400px; z-index: 10001;">
+        <div class="modal-header">
+          <h2>批量移动链接</h2>
+          <button class="modal-close" id="batchMoveDialogClose">✕</button>
+        </div>
+        <div class="modal-body">
+          <p style="margin-bottom: 15px; color: var(--text-muted); font-size: 14px;">
+            将 ${selectedIds.length} 个链接移动到：
+          </p>
+          <select id="batchMoveToGroup" style="width: 100%; padding: 10px; border: 2px solid var(--border); border-radius: 6px; font-size: 14px; margin-bottom: 15px; position: relative; z-index: 10002;">
+            ${options}
+          </select>
+          <div style="display: flex; gap: 10px; justify-content: flex-end; position: relative; z-index: 10002;">
+            <button class="btn btn-secondary" id="batchMoveDialogCancel">取消</button>
+            <button class="btn btn-primary" id="confirmBatchMove" style="cursor: pointer;">确定</button>
+          </div>
+        </div>
+      </div>
+    `;
+    
+    document.body.appendChild(dialog);
+    
+    // 关闭按钮
+    const closeBtn = dialog.querySelector('#batchMoveDialogClose');
+    if (closeBtn) {
+      closeBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        dialog.remove();
+      });
+    }
+    
+    // 取消按钮
+    const cancelBtn = dialog.querySelector('#batchMoveDialogCancel');
+    if (cancelBtn) {
+      cancelBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        dialog.remove();
+      });
+    }
+    
+    // 确定按钮 - 关键修复
+    const confirmBtn = dialog.querySelector('#confirmBatchMove');
+    if (confirmBtn) {
+      confirmBtn.addEventListener('click', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        
+        const selectElement = dialog.querySelector('#batchMoveToGroup');
+        const newGroupId = selectElement.value || null;
+        
+        // 逐个移动链接
+        selectedIds.forEach(linkId => {
+          const link = allLinks.find(l => l.id === linkId);
+          if (link) {
+            link.groupId = newGroupId;
+          }
+        });
+        
+        // 保存到存储
+        chrome.storage.local.set({ links: allLinks }, () => {
+          renderLinks();
+          dialog.remove();
+          // 清空选择
+          document.querySelectorAll('.link-checkbox').forEach(cb => cb.checked = false);
+          updateBatchToolbar();
+        });
+      });
+    }
+    
+    // 点击背景关闭
+    dialog.addEventListener('click', (e) => {
+      if (e.target === dialog) {
+        dialog.remove();
+      }
+    });
+  }
+  
+  // 批量删除
+  function batchDeleteLinks() {
+    const selectedIds = getSelectedLinkIds();
+    if (selectedIds.length === 0) return;
+    
+    if (confirm(`确定要删除这 ${selectedIds.length} 个链接吗？`)) {
+      // 直接删除，不调用deleteLink避免重复确认
+      allLinks = allLinks.filter(l => !selectedIds.includes(l.id));
+      chrome.storage.local.set({ links: allLinks }, () => {
+        renderLinks();
+        updateCount();
+        updateBadge();
+        document.querySelectorAll('.link-checkbox').forEach(cb => cb.checked = false);
+        updateBatchToolbar();
+      });
+    }
+  }
+  
+  // 取消选择
+  function cancelBatchSelection() {
+    document.querySelectorAll('.link-checkbox').forEach(cb => cb.checked = false);
+    updateBatchToolbar();
+  }
+  
   // 初始加载
   loadLinks();
 });
+
+

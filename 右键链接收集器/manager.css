@@ -185,6 +185,19 @@ h1 {
   align-items: center;
 }
 
+/* 批量操作工具栏 */
+.batch-toolbar {
+  background: var(--accent);
+  padding: 15px 30px;
+  border-radius: 12px;
+  margin-bottom: 20px;
+  box-shadow: 0 2px 8px var(--shadow);
+  display: flex;
+  gap: 15px;
+  align-items: center;
+  color: white;
+}
+
 .search-box {
   flex: 1;
 }
@@ -248,6 +261,16 @@ h1 {
 
 .btn-danger:hover {
   background: #dc2626;
+  transform: translateY(-2px);
+}
+
+.btn-success {
+  background: var(--success);
+  color: white;
+}
+
+.btn-success:hover {
+  background: #059669;
   transform: translateY(-2px);
 }
 

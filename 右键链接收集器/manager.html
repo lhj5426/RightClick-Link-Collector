@@ -42,7 +42,18 @@
       <div class="toolbar-actions">
         <button id="saveHtmlBtn" class="btn btn-primary">💾 保存HTML</button>
         <button id="saveTxtBtn" class="btn btn-secondary">📄 保存TXT</button>
+        <button id="exportDataBtn" class="btn btn-primary">📦 导出数据</button>
+        <button id="importDataBtn" class="btn btn-secondary">📥 导入数据</button>
+        <input type="file" id="importFileInput" accept=".json" style="display: none;">
       </div>
+    </div>
+    
+    <!-- 批量操作工具栏 -->
+    <div id="batchToolbar" class="batch-toolbar" style="display: none;">
+      <span id="batchCount" style="margin-right: 20px; font-weight: 500;">已选择 0 个</span>
+      <button id="batchMoveBtn" class="btn btn-success">📁 批量移动</button>
+      <button id="batchDeleteBtn" class="btn btn-danger">🗑️ 批量删除</button>
+      <button id="batchCancelBtn" class="btn btn-secondary">取消选择</button>
     </div>
     
     <!-- 链接列表 -->
