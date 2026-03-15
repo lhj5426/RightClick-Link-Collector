@@ -8,6 +8,7 @@ let themeMode = "auto";
 let currentView = "all";
 let groupsCollapsed = false;
 let sortOrder = "oldest"; // "oldest" 旧→新（默认），"newest" 新→旧
+let unvisitedMode = "aggregate"; // "aggregate" 聚合模式, "inGroup" 组内模式
 const STORAGE_KEY = 'tabSaverVisitedLinks';
 const DEFAULT_GROUPS = [];
 
@@ -138,7 +139,8 @@ document.addEventListener("DOMContentLoaded", () => {
     if (query) {
       visible = allLinks.filter(link => 
         (link.url || "").toLowerCase().includes(query) ||
-        (link.title || "").toLowerCase().includes(query)
+        (link.title || "").toLowerCase().includes(query) ||
+        (link.note || "").toLowerCase().includes(query)
       );
     }
     
@@ -166,6 +168,8 @@ document.addEventListener("DOMContentLoaded", () => {
       renderByDomainView(visible, visited);
     } else if (currentView === "byDate") {
       renderByDateView(visible, visited);
+    } else if (currentView === "byNote") {
+      renderByNoteView(visible, visited);
     } else if (currentView === "unvisited") {
       renderUnvisitedView(visible, visited);
     }
@@ -313,17 +317,47 @@ document.addEventListener("DOMContentLoaded", () => {
   
   // 渲染未访问视图
   function renderUnvisitedView(links, visited) {
-    const unvisited = links.filter(link => !visited[link.url]);
+    if (unvisitedMode === "aggregate") {
+      // 聚合模式：所有未访问的链接归纳到一起
+      const unvisited = links.filter(link => !visited[link.url]);
+      
+      if (unvisited.length === 0) {
+        linksList.innerHTML = '<div class="empty-state"><p>所有链接都已访问过</p></div>';
+        return;
+      }
+      
+      unvisited.forEach((link, index) => {
+        const card = createLinkCard(link, index + 1, visited);
+        linksList.appendChild(card);
+      });
+    } else {
+      // 组内模式：根据当前视图类型，在分组内只显示未访问的链接
+      renderUnvisitedInGroupView(links, visited);
+    }
+  }
+  
+  // 组内未访问视图
+  function renderUnvisitedInGroupView(links, visited) {
+    const unvisitedLinks = links.filter(link => !visited[link.url]);
     
-    if (unvisited.length === 0) {
+    if (unvisitedLinks.length === 0) {
       linksList.innerHTML = '<div class="empty-state"><p>所有链接都已访问过</p></div>';
       return;
     }
     
-    unvisited.forEach((link, index) => {
-      const card = createLinkCard(link, index + 1, visited);
-      linksList.appendChild(card);
-    });
+    // 根据之前的视图类型来决定如何分组显示未访问的链接
+    const previousView = localStorage.getItem('previousView') || 'byDomain';
+    
+    if (previousView === 'byDomain') {
+      renderByDomainView(unvisitedLinks, visited);
+    } else if (previousView === 'byGroup') {
+      renderByGroupView(unvisitedLinks, visited);
+    } else if (previousView === 'byDate') {
+      renderByDateView(unvisitedLinks, visited);
+    } else {
+      // 默认按域名分组
+      renderByDomainView(unvisitedLinks, visited);
+    }
   }
   
   // 按日期分组渲染
@@ -387,6 +421,84 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   }
   
+  // 按备注分组渲染
+  function renderByNoteView(links, visited) {
+    // 有备注的链接
+    const withNote = links.filter(link => link.note && link.note.trim());
+    // 无备注的链接
+    const withoutNote = links.filter(link => !link.note || !link.note.trim());
+    
+    if (withNote.length > 0) {
+      const section = document.createElement("div");
+      section.className = "group-section";
+      
+      const header = document.createElement("div");
+      header.className = "group-header";
+      header.innerHTML = `
+        <span>📝 有备注 (${withNote.length})</span>
+        <span class="group-toggle">▾</span>
+      `;
+      header.onclick = () => {
+        header.classList.toggle("collapsed");
+        content.classList.toggle("collapsed");
+      };
+      
+      const content = document.createElement("div");
+      content.className = "group-content";
+      
+      // 组内按时间排序
+      const sortedLinks = withNote.sort((a, b) => {
+        const timeA = new Date(a.date || 0).getTime();
+        const timeB = new Date(b.date || 0).getTime();
+        return sortOrder === "oldest" ? timeA - timeB : timeB - timeA;
+      });
+      
+      sortedLinks.forEach((link, index) => {
+        const card = createLinkCard(link, index + 1, visited);
+        content.appendChild(card);
+      });
+      
+      section.appendChild(header);
+      section.appendChild(content);
+      linksList.appendChild(section);
+    }
+    
+    if (withoutNote.length > 0) {
+      const section = document.createElement("div");
+      section.className = "group-section";
+      
+      const header = document.createElement("div");
+      header.className = "group-header";
+      header.innerHTML = `
+        <span>📭 无备注 (${withoutNote.length})</span>
+        <span class="group-toggle">▾</span>
+      `;
+      header.onclick = () => {
+        header.classList.toggle("collapsed");
+        content.classList.toggle("collapsed");
+      };
+      
+      const content = document.createElement("div");
+      content.className = "group-content";
+      
+      // 组内按时间排序
+      const sortedLinks = withoutNote.sort((a, b) => {
+        const timeA = new Date(a.date || 0).getTime();
+        const timeB = new Date(b.date || 0).getTime();
+        return sortOrder === "oldest" ? timeA - timeB : timeB - timeA;
+      });
+      
+      sortedLinks.forEach((link, index) => {
+        const card = createLinkCard(link, index + 1, visited);
+        content.appendChild(card);
+      });
+      
+      section.appendChild(header);
+      section.appendChild(content);
+      linksList.appendChild(section);
+    }
+  }
+  
   // 创建链接卡片
   function createLinkCard(link, index, visited) {
     const card = document.createElement("div");
@@ -444,6 +556,11 @@ document.addEventListener("DOMContentLoaded", () => {
       duplicateBadge = `<span class="duplicate-badge">🔗 与${otherStr}重复</span>`;
     }
     
+    // 备注显示
+    const noteDisplay = link.note 
+      ? `<div class="link-note">📝 备注: ${escapeHtml(link.note)}</div>`
+      : '';
+    
     card.innerHTML = `
       <input type="checkbox" class="link-checkbox" data-id="${link.id}" style="margin-right: 10px; cursor: pointer;">
       <div class="link-index">${index}</div>
@@ -451,8 +568,10 @@ document.addEventListener("DOMContentLoaded", () => {
         <a href="${escapeHtml(link.url)}" class="link-url" target="_blank" data-url="${escapeHtml(link.url)}">${escapeHtml(link.url)}</a>
         <div class="link-source">来源: ${escapeHtml(link.title || link.page || '未知')} ${groupBadge} ${duplicateBadge}</div>
         <div class="link-date">保存时间: ${escapeHtml(link.date || '')}</div>
+        ${noteDisplay}
         ${visitInfo}
         <div class="link-actions">
+          <button class="link-btn link-btn-note" data-id="${link.id}">📝 备注</button>
           <button class="link-btn link-btn-move" data-id="${link.id}">📁 移动</button>
           <button class="link-btn link-btn-copy" data-url="${escapeHtml(link.url)}">📋 复制</button>
           <button class="link-btn link-btn-delete" data-id="${link.id}">🗑️ 删除</button>
@@ -479,6 +598,12 @@ document.addEventListener("DOMContentLoaded", () => {
       }
     });
     
+    // 备注按钮
+    card.querySelector(".link-btn-note").addEventListener("click", (e) => {
+      const id = parseInt(e.currentTarget.dataset.id);
+      showNoteDialog(id);
+    });
+    
     // 移动按钮
     card.querySelector(".link-btn-move").addEventListener("click", (e) => {
       const id = parseInt(e.currentTarget.dataset.id);
@@ -503,6 +628,71 @@ document.addEventListener("DOMContentLoaded", () => {
     });
     
     return card;
+  }
+  
+  // 显示备注对话框
+  function showNoteDialog(linkId) {
+    const link = allLinks.find(l => l.id === linkId);
+    if (!link) return;
+    
+    const dialog = document.createElement('div');
+    dialog.className = 'modal show';
+    dialog.style.zIndex = '10000';
+    dialog.innerHTML = `
+      <div class="modal-content" style="max-width: 500px; z-index: 10001;">
+        <div class="modal-header">
+          <h2>编辑备注</h2>
+          <button class="modal-close" id="noteDialogClose">✕</button>
+        </div>
+        <div class="modal-body">
+          <p style="margin-bottom: 15px; color: var(--text-muted); font-size: 14px; word-break: break-all;">
+            ${escapeHtml(link.url.substring(0, 80))}${link.url.length > 80 ? '...' : ''}
+          </p>
+          <textarea id="noteInput" style="width: 100%; min-height: 100px; padding: 10px; border: 2px solid var(--border); border-radius: 6px; font-size: 14px; font-family: inherit; resize: vertical;" placeholder="输入备注...">${escapeHtml(link.note || '')}</textarea>
+          <div style="display: flex; gap: 10px; justify-content: flex-end; margin-top: 15px;">
+            <button class="btn btn-secondary" id="noteDialogCancel">取消</button>
+            <button class="btn btn-danger" id="clearNote">清除备注</button>
+            <button class="btn btn-primary" id="confirmNote">保存</button>
+          </div>
+        </div>
+      </div>
+    `;
+    
+    document.body.appendChild(dialog);
+    
+    const noteInput = dialog.querySelector('#noteInput');
+    noteInput.focus();
+    noteInput.setSelectionRange(noteInput.value.length, noteInput.value.length);
+    
+    // 关闭按钮
+    dialog.querySelector('#noteDialogClose').addEventListener('click', () => dialog.remove());
+    
+    // 取消按钮
+    dialog.querySelector('#noteDialogCancel').addEventListener('click', () => dialog.remove());
+    
+    // 清除备注按钮
+    dialog.querySelector('#clearNote').addEventListener('click', () => {
+      link.note = '';
+      chrome.storage.local.set({ links: allLinks }, () => {
+        renderLinks();
+        dialog.remove();
+      });
+    });
+    
+    // 保存按钮
+    dialog.querySelector('#confirmNote').addEventListener('click', () => {
+      const note = noteInput.value.trim();
+      link.note = note;
+      chrome.storage.local.set({ links: allLinks }, () => {
+        renderLinks();
+        dialog.remove();
+      });
+    });
+    
+    // 点击背景关闭
+    dialog.addEventListener('click', (e) => {
+      if (e.target === dialog) dialog.remove();
+    });
   }
   
   // 显示移动对话框
@@ -593,6 +783,12 @@ document.addEventListener("DOMContentLoaded", () => {
       
       viewTabs.forEach(t => t.classList.remove("active"));
       tab.classList.add("active");
+      
+      // 保存之前的视图（用于组内未访问模式）
+      if (currentView !== "unvisited") {
+        localStorage.setItem('previousView', currentView);
+      }
+      
       currentView = tab.dataset.view;
       renderLinks();
     });
@@ -704,12 +900,20 @@ document.addEventListener("DOMContentLoaded", () => {
   // 排序按钮
   const sortBtn = document.getElementById("sortBtn");
   if (sortBtn) {
+    // 从 localStorage 读取排序状态
+    const savedSortOrder = localStorage.getItem('sortOrder') || 'oldest';
+    sortOrder = savedSortOrder;
+    
     // 初始化按钮文本
-    sortBtn.textContent = "⏱️ 按时间排序(旧→新)";
+    sortBtn.textContent = sortOrder === "oldest" ? "⏱️ 按时间排序(旧→新)" : "⏱️ 按时间排序(新→旧)";
     
     sortBtn.addEventListener("click", () => {
       sortOrder = sortOrder === "oldest" ? "newest" : "oldest";
       sortBtn.textContent = sortOrder === "oldest" ? "⏱️ 按时间排序(旧→新)" : "⏱️ 按时间排序(新→旧)";
+      
+      // 保存排序状态到 localStorage
+      localStorage.setItem('sortOrder', sortOrder);
+      
       renderLinks();
     });
   }
@@ -819,8 +1023,11 @@ document.addEventListener("DOMContentLoaded", () => {
           return;
         }
         
-        // 询问是否覆盖或合并
-        const choice = confirm('是否覆盖现有数据？\n点击"确定"覆盖，点击"取消"合并');
+        const importLinksCount = (data.links || []).length;
+        const importGroupsCount = (data.groups || []).length;
+        
+        // 询问是否覆盖或合并，并显示要导入的数量
+        const choice = confirm(`准备导入 ${importLinksCount} 个链接和 ${importGroupsCount} 个分组\n\n是否覆盖现有数据？\n点击"确定"覆盖，点击"取消"合并`);
         
         if (choice) {
           // 覆盖模式
@@ -868,7 +1075,7 @@ document.addEventListener("DOMContentLoaded", () => {
           updateGroupCount();
           updateBadge();
           updateContextMenus(); // 更新右键菜单
-          alert(`成功导入 ${(data.links || []).length} 个链接和 ${(data.groups || []).length} 个分组`);
+          alert(`成功导入 ${importLinksCount} 个链接和 ${importGroupsCount} 个分组`);
         });
       } catch (err) {
         alert('导入失败：' + err.message);
@@ -931,8 +1138,9 @@ document.addEventListener("DOMContentLoaded", () => {
     // 生成单个链接条目
     function generateTabEntry(link, index) {
       const saveTime = link.date ? `<div class="tab-save-time">保存时间: ${escapeHtml(link.date)}</div>` : '';
+      const noteDisplay = link.note ? `<div class="tab-note">📝 备注: ${escapeHtml(link.note)}</div>` : '';
       return `
-        <div class="tab-entry" data-url="${escapeHtml(link.url)}" data-title="${escapeHtml(link.title || link.page || '')}" data-group-id="${link.groupId || ''}">
+        <div class="tab-entry" data-url="${escapeHtml(link.url)}" data-title="${escapeHtml(link.title || link.page || '')}" data-group-id="${link.groupId || ''}" data-note="${escapeHtml(link.note || '')}">
           <span class="tab-index">${index}</span>
           <input type="checkbox" class="tab-checkbox" onclick="window.updateSelectionState()">
           <div class="tab-content">
@@ -942,6 +1150,7 @@ document.addEventListener("DOMContentLoaded", () => {
               <div class="tab-url collapsed">来源: ${escapeHtml(link.title || link.page || '未知')}</div>
             </div>
             ${saveTime}
+            ${noteDisplay}
             <div class="visit-info"><span class="visit-time"></span><span class="visit-count"></span></div>
             <div class="tab-markers">
               <label class="marker-checkbox marker-downloaded">
@@ -968,6 +1177,12 @@ document.addEventListener("DOMContentLoaded", () => {
     let customGroupsHTML = '';
     const globalLinks = links.filter(link => !link.groupId);
     if (globalLinks.length > 0) {
+      // 组内按保存时间排序（新→旧）
+      const sortedGlobalLinks = globalLinks.sort((a, b) => {
+        const dateA = a.date || '';
+        const dateB = b.date || '';
+        return dateB.localeCompare(dateA);
+      });
       customGroupsHTML += `
         <div class="tab-group">
           <div class="group-header" onclick="window.toggleGroup(this)">
@@ -977,12 +1192,18 @@ document.addEventListener("DOMContentLoaded", () => {
             </span>
             <span class="toggle-icon">▾</span>
           </div>
-          <div class="group-content">${globalLinks.map((link, i) => generateTabEntry(link, i + 1)).join('')}</div>
+          <div class="group-content">${sortedGlobalLinks.map((link, i) => generateTabEntry(link, i + 1)).join('')}</div>
         </div>`;
     }
     groups.forEach(group => {
       const groupLinks = links.filter(link => link.groupId === group.id);
       if (groupLinks.length > 0) {
+        // 组内按保存时间排序（新→旧）
+        const sortedGroupLinks = groupLinks.sort((a, b) => {
+          const dateA = a.date || '';
+          const dateB = b.date || '';
+          return dateB.localeCompare(dateA);
+        });
         customGroupsHTML += `
           <div class="tab-group">
             <div class="group-header" onclick="window.toggleGroup(this)">
@@ -992,12 +1213,48 @@ document.addEventListener("DOMContentLoaded", () => {
               </span>
               <span class="toggle-icon">▾</span>
             </div>
-            <div class="group-content">${groupLinks.map((link, i) => generateTabEntry(link, i + 1)).join('')}</div>
+            <div class="group-content">${sortedGroupLinks.map((link, i) => generateTabEntry(link, i + 1)).join('')}</div>
           </div>`;
       }
     });
+    
+    // 按保存时间分组生成HTML
+    let bySaveTimeHTML = '';
+    const dateGroups = {};
+    links.forEach(link => {
+      const dateStr = link.date || '';
+      const dateMatch = dateStr.match(/(\d{4})\/(\d{2})\/(\d{2})/);
+      if (dateMatch) {
+        const [, year, month, day] = dateMatch;
+        const dateKey = `${year}/${month}/${day}`;
+        const dateDisplay = `${month}月${day}日`;
+        if (!dateGroups[dateKey]) {
+          dateGroups[dateKey] = { display: dateDisplay, links: [] };
+        }
+        dateGroups[dateKey].links.push(link);
+      }
+    });
+    
+    const sortedDates = Object.keys(dateGroups).sort().reverse();
+    sortedDates.forEach(dateKey => {
+      const group = dateGroups[dateKey];
+      // 组内按保存时间排序（新→旧）
+      const sortedLinks = group.links.sort((a, b) => {
+        const dateA = a.date || '';
+        const dateB = b.date || '';
+        return dateB.localeCompare(dateA);
+      });
+      bySaveTimeHTML += `
+        <div class="tab-group">
+          <div class="group-header" onclick="window.toggleGroup(this)">
+            <span class="group-header-title">📅 ${group.display} 【共有${group.links.length}个链接】</span>
+            <span class="toggle-icon">▾</span>
+          </div>
+          <div class="group-content">${sortedLinks.map((link, i) => generateTabEntry(link, i + 1)).join('')}</div>
+        </div>`;
+    });
 
-    const ALL_TABS_JSON = JSON.stringify(links.map(l => ({ url: l.url, title: l.title || l.page || '', date: l.date, groupId: l.groupId })));
+    const ALL_TABS_JSON = JSON.stringify(links.map(l => ({ url: l.url, title: l.title || l.page || '', date: l.date, groupId: l.groupId, note: l.note || '' })));
     const ALL_GROUPS_JSON = JSON.stringify(groups);
 
     return `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>保存的链接 - ${timestamp}</title>
@@ -1030,6 +1287,7 @@ document.addEventListener("DOMContentLoaded", () => {
         .tab-url-toggle { color: #2196F3; font-size: 0.85em; cursor: pointer; user-select: none; display: inline-block; }
         .tab-url-toggle:hover { text-decoration: underline; }
         .tab-save-time { color: #999; font-size: 0.8em; margin-top: 4px; }
+        .tab-note { color: #333; font-size: 0.85em; background: #FFF3E0; padding: 6px 10px; border-radius: 4px; margin-top: 6px; border-left: 3px solid #FF9800; }
         .visit-info { display: flex; gap: 15px; font-size: 0.8em; margin-top: 6px; font-style: italic; color: #666; }
         .tab-group { margin-bottom: 20px; }
         .group-header { font-size: 1.1em; font-weight: 500; color: #666; padding: 10px; background: #f5f5f5; border-radius: 4px; cursor: pointer; display: flex; justify-content: space-between; align-items: center; }
@@ -1066,6 +1324,7 @@ document.addEventListener("DOMContentLoaded", () => {
           <button class="button" id="openSelectedButton" onclick="window.openTabsBySelector('.tab-checkbox:checked')" disabled>打开选中的链接</button>
           <button class="button" style="background:#FF9800" onclick="window.toggleAllUrls()">一键展开所有来源</button>
           <button class="button" style="background:#673AB7" onclick="window.toggleAllGroups()">折叠/展开分组</button>
+          <button class="button" style="background:#00BCD4" id="sortOrderBtn" onclick="window.toggleSortOrder()">排序: 新→旧</button>
           <button class="button" style="background:#9C27B0" onclick="window.clearMarkers()">清除下载标记</button>
           <button class="button" style="background:#F44336" onclick="window.clearVisitHistory()">清除访问历史</button>
         </div>
@@ -1077,16 +1336,21 @@ document.addEventListener("DOMContentLoaded", () => {
         <button class="view-button active" data-view="recent">最新</button>
         <button class="view-button" data-view="alphabetical">按字母顺序</button>
         <button class="view-button" data-view="url">按网址</button>
+        <button class="view-button" data-view="bySaveTime">按保存时间分组</button>
         <button class="view-button" data-view="byCustomGroup">按自定义分组</button>
+        <button class="view-button" data-view="byNote">按备注分组</button>
         <button class="view-button" data-view="byTabGroup">按标签组</button>
-        <button class="view-button" data-view="byRulesUnvisited">按未访问排序</button>
+        <button class="view-button" data-view="byRulesUnvisited">未访问(聚合)</button>
+        <button class="view-button" data-view="byRulesUnvisitedInGroup">未访问(组内)</button>
         <button class="view-button" data-view="grouped">按域名分组</button>
       </div>
       <div class="views">
         <div class="tabs-container active" id="recent">${links.map((link, i) => generateTabEntry(link, i + 1)).join('')}</div>
         <div class="tabs-container" id="alphabetical">${linksByTitle.map((link, i) => generateTabEntry(link, i + 1)).join('')}</div>
         <div class="tabs-container" id="url">${linksByUrl.map((link, i) => generateTabEntry(link, i + 1)).join('')}</div>
+        <div class="tabs-container" id="bySaveTime">${bySaveTimeHTML}</div>
         <div class="tabs-container" id="byCustomGroup">${customGroupsHTML}</div>
+        <div class="tabs-container" id="byNote"></div>
         <div class="tabs-container" id="byTabGroup">
           <div class="tab-group">
             <div class="group-header" onclick="window.toggleGroup(this)">
@@ -1097,15 +1361,24 @@ document.addEventListener("DOMContentLoaded", () => {
           </div>
         </div>
         <div class="tabs-container" id="byRulesUnvisited"></div>
+        <div class="tabs-container" id="byRulesUnvisitedInGroup"></div>
         <div class="tabs-container" id="grouped">
-          ${Object.entries(groupedLinksByDomain).map(([domain, dLinks]) => `
+          ${Object.entries(groupedLinksByDomain).map(([domain, dLinks]) => {
+            // 组内按保存时间排序（新→旧）
+            const sortedLinks = dLinks.sort((a, b) => {
+              const dateA = a.date || '';
+              const dateB = b.date || '';
+              return dateB.localeCompare(dateA);
+            });
+            return `
             <div class="tab-group">
               <div class="group-header" onclick="window.toggleGroup(this)">
                 <span class="group-header-title">${domain} 【当前域名共有${dLinks.length}个链接】</span>
                 <span class="toggle-icon">▾</span>
               </div>
-              <div class="group-content">${dLinks.map((link, i) => generateTabEntry(link, i + 1)).join('')}</div>
-            </div>`).join('')}
+              <div class="group-content">${sortedLinks.map((link, i) => generateTabEntry(link, i + 1)).join('')}</div>
+            </div>`;
+          }).join('')}
         </div>
       </div>
       <script>
@@ -1113,6 +1386,7 @@ document.addEventListener("DOMContentLoaded", () => {
         const MARKERS_STORAGE_KEY = 'tabSaverMarkers';
         const ALL_TABS_DATA = ${ALL_TABS_JSON};
         const ALL_GROUPS_DATA = ${ALL_GROUPS_JSON};
+        let currentSortOrder = 'desc'; // 'desc' = 新→旧(默认), 'asc' = 旧→新
 
         const getVisitedLinks = () => JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}');
         const getMarkers = () => JSON.parse(localStorage.getItem(MARKERS_STORAGE_KEY) || '{}');
@@ -1175,9 +1449,6 @@ document.addEventListener("DOMContentLoaded", () => {
             document.querySelectorAll('.visit-info').forEach(info => {
               for (let i = 1; i <= 7; i++) info.classList.remove('visited-count-' + i);
             });
-            if (document.querySelector('.view-button[data-view="byRulesUnvisited"]').classList.contains('active')) {
-              regenerateUnvisitedView();
-            }
           }
         };
 
@@ -1206,7 +1477,9 @@ document.addEventListener("DOMContentLoaded", () => {
           q = q.toLowerCase();
           const active = document.querySelector('.views > .active');
           active.querySelectorAll('.tab-entry').forEach(e => {
-            const match = e.dataset.title.toLowerCase().includes(q) || e.dataset.url.toLowerCase().includes(q);
+            const match = e.dataset.title.toLowerCase().includes(q) || 
+                         e.dataset.url.toLowerCase().includes(q) || 
+                         (e.dataset.note && e.dataset.note.toLowerCase().includes(q));
             e.classList.toggle('hidden', !match);
           });
           active.querySelectorAll('.tab-group').forEach(g => {
@@ -1253,9 +1526,44 @@ document.addEventListener("DOMContentLoaded", () => {
           window.allGroupsCollapsed = collapsing;
         };
 
+        window.toggleSortOrder = () => {
+          currentSortOrder = currentSortOrder === 'desc' ? 'asc' : 'desc';
+          const btn = document.getElementById('sortOrderBtn');
+          btn.textContent = currentSortOrder === 'desc' ? '排序: 新→旧' : '排序: 旧→新';
+          
+          // 重新排序当前视图
+          const active = document.querySelector('.views > .active');
+          active.querySelectorAll('.tab-group').forEach(group => {
+            const content = group.querySelector('.group-content');
+            const entries = Array.from(content.querySelectorAll('.tab-entry'));
+            
+            // 按保存时间排序
+            entries.sort((a, b) => {
+              const dateA = a.querySelector('.tab-save-time')?.textContent.replace('保存时间: ', '') || '';
+              const dateB = b.querySelector('.tab-save-time')?.textContent.replace('保存时间: ', '') || '';
+              
+              if (currentSortOrder === 'desc') {
+                return dateB.localeCompare(dateA); // 新→旧
+              } else {
+                return dateA.localeCompare(dateB); // 旧→新
+              }
+            });
+            
+            // 清空并重新添加
+            content.innerHTML = '';
+            entries.forEach((entry, index) => {
+              // 更新序号
+              const indexEl = entry.querySelector('.tab-index');
+              if (indexEl) indexEl.textContent = index + 1;
+              content.appendChild(entry);
+            });
+          });
+        };
+
         function generateTabEntryInternal(link, i) {
           const saveTime = link.date ? \`<div class="tab-save-time">保存时间: \${link.date}</div>\` : '';
-          return \`<div class="tab-entry" data-url="\${link.url}" data-title="\${link.title || ''}">
+          const noteDisplay = link.note ? \`<div class="tab-note">📝 备注: \${link.note}</div>\` : '';
+          return \`<div class="tab-entry" data-url="\${link.url}" data-title="\${link.title || ''}" data-note="\${link.note || ''}">
             <span class="tab-index">\${i+1}</span>
             <input type="checkbox" class="tab-checkbox" onclick="window.updateSelectionState()">
             <div class="tab-content">
@@ -1265,6 +1573,7 @@ document.addEventListener("DOMContentLoaded", () => {
                 <div class="tab-url collapsed">来源: \${link.title || '未知'}</div>
               </div>
               \${saveTime}
+              \${noteDisplay}
               <div class="visit-info"><span class="visit-time"></span><span class="visit-count"></span></div>
               <div class="tab-markers">
                 <label class="marker-checkbox marker-downloaded"><input type="checkbox" class="marker-downloaded-cb" onchange="window.saveMarker(this, 'downloaded')"><span>✓ 已下载</span></label>
@@ -1295,6 +1604,177 @@ document.addEventListener("DOMContentLoaded", () => {
           applyState(container);
         }
 
+        function regenerateUnvisitedInGroupView() {
+          const container = document.getElementById('byRulesUnvisitedInGroup');
+          const visited = getVisitedLinks();
+          const unvisitedLinks = ALL_TABS_DATA.filter(t => !visited[t.url]);
+
+          if (unvisitedLinks.length === 0) {
+            container.innerHTML = '<div class="empty-state"><p>没有未访问的链接</p></div>';
+            return;
+          }
+
+          // 获取当前激活的视图类型（从localStorage或默认）
+          const lastView = localStorage.getItem('lastNonUnvisitedView') || 'grouped';
+          let html = '';
+
+          if (lastView === 'grouped') {
+            // 按域名分组
+            const domainGroups = {};
+            unvisitedLinks.forEach(link => {
+              try {
+                const hostname = new URL(link.url).hostname.replace('www.', '');
+                const parts = hostname.split('.');
+                const domain = parts.length >= 2 ? parts.slice(-2).join('.') : hostname;
+                if (!domainGroups[domain]) domainGroups[domain] = [];
+                domainGroups[domain].push(link);
+              } catch {
+                if (!domainGroups['unknown']) domainGroups['unknown'] = [];
+                domainGroups['unknown'].push(link);
+              }
+            });
+
+            const sortedDomains = Object.keys(domainGroups).sort();
+            sortedDomains.forEach(domain => {
+              const links = domainGroups[domain];
+              html += \`
+                <div class="tab-group">
+                  <div class="group-header" onclick="window.toggleGroup(this)">
+                    <span class="group-header-title">\${domain} 【未访问 \${links.length} 个链接】</span>
+                    <span class="toggle-icon">▾</span>
+                  </div>
+                  <div class="group-content">\${links.map((link, i) => generateTabEntryInternal(link, i)).join('')}</div>
+                </div>\`;
+            });
+          } else if (lastView === 'bySaveTime') {
+            // 按保存时间分组
+            const dateGroups = {};
+            unvisitedLinks.forEach(link => {
+              const dateStr = link.date || '';
+              const dateMatch = dateStr.match(/(\\d{4})\\/(\\d{2})\\/(\\d{2})/);
+              if (dateMatch) {
+                const [, year, month, day] = dateMatch;
+                const dateKey = \`\${year}/\${month}/\${day}\`;
+                const dateDisplay = \`\${month}月\${day}日\`;
+                if (!dateGroups[dateKey]) {
+                  dateGroups[dateKey] = { display: dateDisplay, links: [] };
+                }
+                dateGroups[dateKey].links.push(link);
+              }
+            });
+
+            const sortedDates = Object.keys(dateGroups).sort().reverse();
+            sortedDates.forEach(dateKey => {
+              const group = dateGroups[dateKey];
+              html += \`
+                <div class="tab-group">
+                  <div class="group-header" onclick="window.toggleGroup(this)">
+                    <span class="group-header-title">📅 \${group.display} 【未访问 \${group.links.length} 个链接】</span>
+                    <span class="toggle-icon">▾</span>
+                  </div>
+                  <div class="group-content">\${group.links.map((link, i) => generateTabEntryInternal(link, i)).join('')}</div>
+                </div>\`;
+            });
+          } else if (lastView === 'byCustomGroup') {
+            // 按自定义分组
+            const globalLinks = unvisitedLinks.filter(link => !link.groupId);
+            if (globalLinks.length > 0) {
+              html += \`
+                <div class="tab-group">
+                  <div class="group-header" onclick="window.toggleGroup(this)">
+                    <span class="group-header-title">
+                      <span style="display:inline-block;width:16px;height:16px;background:#9E9E9E;border-radius:3px;margin-right:8px;vertical-align:middle;"></span>
+                      全局（无分组） 【未访问 \${globalLinks.length} 个链接】
+                    </span>
+                    <span class="toggle-icon">▾</span>
+                  </div>
+                  <div class="group-content">\${globalLinks.map((link, i) => generateTabEntryInternal(link, i)).join('')}</div>
+                </div>\`;
+            }
+            
+            ALL_GROUPS_DATA.forEach(group => {
+              const groupLinks = unvisitedLinks.filter(link => link.groupId === group.id);
+              if (groupLinks.length > 0) {
+                html += \`
+                  <div class="tab-group">
+                    <div class="group-header" onclick="window.toggleGroup(this)">
+                      <span class="group-header-title">
+                        <span style="display:inline-block;width:16px;height:16px;background:\${group.color};border-radius:3px;margin-right:8px;vertical-align:middle;"></span>
+                        \${group.name} 【未访问 \${groupLinks.length} 个链接】
+                      </span>
+                      <span class="toggle-icon">▾</span>
+                    </div>
+                    <div class="group-content">\${groupLinks.map((link, i) => generateTabEntryInternal(link, i)).join('')}</div>
+                  </div>\`;
+              }
+            });
+          } else {
+            // 默认按域名分组
+            const domainGroups = {};
+            unvisitedLinks.forEach(link => {
+              try {
+                const hostname = new URL(link.url).hostname.replace('www.', '');
+                const parts = hostname.split('.');
+                const domain = parts.length >= 2 ? parts.slice(-2).join('.') : hostname;
+                if (!domainGroups[domain]) domainGroups[domain] = [];
+                domainGroups[domain].push(link);
+              } catch {
+                if (!domainGroups['unknown']) domainGroups['unknown'] = [];
+                domainGroups['unknown'].push(link);
+              }
+            });
+
+            const sortedDomains = Object.keys(domainGroups).sort();
+            sortedDomains.forEach(domain => {
+              const links = domainGroups[domain];
+              html += \`
+                <div class="tab-group">
+                  <div class="group-header" onclick="window.toggleGroup(this)">
+                    <span class="group-header-title">\${domain} 【未访问 \${links.length} 个链接】</span>
+                    <span class="toggle-icon">▾</span>
+                  </div>
+                  <div class="group-content">\${links.map((link, i) => generateTabEntryInternal(link, i)).join('')}</div>
+                </div>\`;
+            });
+          }
+
+          container.innerHTML = html;
+          applyState(container);
+        }
+
+        function regenerateByNoteView() {
+          const container = document.getElementById('byNote');
+          const withNote = ALL_TABS_DATA.filter(t => t.note && t.note.trim());
+          const withoutNote = ALL_TABS_DATA.filter(t => !t.note || !t.note.trim());
+
+          let html = '';
+          
+          if (withNote.length > 0) {
+            html += \`
+              <div class="tab-group">
+                <div class="group-header" onclick="window.toggleGroup(this)">
+                  <span class="group-header-title">📝 有备注 【共有\${withNote.length}个链接】</span>
+                  <span class="toggle-icon">▾</span>
+                </div>
+                <div class="group-content">\${withNote.map((link, i) => generateTabEntryInternal(link, i)).join('')}</div>
+              </div>\`;
+          }
+          
+          if (withoutNote.length > 0) {
+            html += \`
+              <div class="tab-group">
+                <div class="group-header" onclick="window.toggleGroup(this)">
+                  <span class="group-header-title">📭 无备注 【共有\${withoutNote.length}个链接】</span>
+                  <span class="toggle-icon">▾</span>
+                </div>
+                <div class="group-content">\${withoutNote.map((link, i) => generateTabEntryInternal(link, i)).join('')}</div>
+              </div>\`;
+          }
+
+          container.innerHTML = html;
+          applyState(container);
+        }
+
         function applyState(base = document) {
           const visited = getVisitedLinks();
           const markers = getMarkers();
@@ -1315,7 +1795,19 @@ document.addEventListener("DOMContentLoaded", () => {
             document.querySelectorAll('.views > div').forEach(v => v.classList.remove('active'));
             const target = document.getElementById(btn.dataset.view);
             target.classList.add('active');
-            if (btn.dataset.view === 'byRulesUnvisited') regenerateUnvisitedView();
+            
+            // 记录非未访问视图，用于组内未访问模式
+            if (btn.dataset.view !== 'byRulesUnvisited' && btn.dataset.view !== 'byRulesUnvisitedInGroup') {
+              localStorage.setItem('lastNonUnvisitedView', btn.dataset.view);
+            }
+            
+            if (btn.dataset.view === 'byRulesUnvisited') {
+              regenerateUnvisitedView();
+            } else if (btn.dataset.view === 'byRulesUnvisitedInGroup') {
+              regenerateUnvisitedInGroupView();
+            } else if (btn.dataset.view === 'byNote') {
+              regenerateByNoteView();
+            }
             window.searchTabs('');
           });
         });

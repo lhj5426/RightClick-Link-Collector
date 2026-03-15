@@ -373,6 +373,21 @@ h1 {
   font-size: 12px;
 }
 
+.link-note {
+  color: var(--text);
+  font-size: 13px;
+  background: #FFF3E0;
+  padding: 6px 10px;
+  border-radius: 4px;
+  margin-top: 4px;
+  border-left: 3px solid #FF9800;
+}
+
+body.dark .link-note {
+  background: #3a2f1f;
+  border-left-color: #FF9800;
+}
+
 .link-visits {
   font-size: 12px;
   font-weight: 600;
@@ -400,6 +415,16 @@ h1 {
   cursor: pointer;
   transition: all 0.2s;
   background: var(--panel);
+}
+
+.link-btn-note {
+  color: #2196F3;
+  border-color: #2196F3;
+}
+
+.link-btn-note:hover {
+  background: #2196F3;
+  color: white;
 }
 
 .link-btn-copy {
