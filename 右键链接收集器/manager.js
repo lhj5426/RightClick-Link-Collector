@@ -1661,7 +1661,7 @@ document.addEventListener("DOMContentLoaded", () => {
       </div>
       
       <!-- Preview Modal for Exported HTML -->
-      <div id="previewModal" class="preview-modal" onclick="if(event.target===this)this.classList.remove('show')">
+      <div id="previewModal" class="preview-modal" onclick="this.classList.remove('show')">
         <div class="preview-container">
           <img id="previewImage" src="" alt="预览">
         </div>
@@ -2672,8 +2672,8 @@ document.addEventListener("DOMContentLoaded", () => {
       </div>
     `;
     
-    modal.onclick = (e) => {
-      if (e.target === modal) modal.classList.remove('show');
+    modal.onclick = () => {
+      modal.classList.remove('show');
     };
 
     const container = modal.querySelector('.preview-container');
