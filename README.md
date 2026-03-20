@@ -22,6 +22,8 @@
 
 <img width="300" height="264" alt="image" src="https://github.com/user-attachments/assets/510fbf19-1828-4e8a-a610-25c3095bac50" />
 
+<img width="1513" height="968" alt="image" src="https://github.com/user-attachments/assets/0d67e82a-ebc5-4e26-83cd-9740b9a22e67" />
+
 
 E站很多画廊想下 但是一次打开太多链接 浏览器会很卡
 为了控制这个问题
