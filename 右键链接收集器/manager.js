@@ -50,6 +50,38 @@ document.addEventListener("DOMContentLoaded", () => {
     } catch { return 'unknown'; }
   }
   
+  // 辅助函数: 为分组添加全选逻辑
+  function setupGroupSelectAll(header, content) {
+    const selectAllCheckbox = header.querySelector('.group-select-all');
+    if (!selectAllCheckbox) return;
+    
+    selectAllCheckbox.addEventListener('click', (e) => {
+      e.stopPropagation(); // 防止折叠
+      const isChecked = e.target.checked;
+      const checkboxes = content.querySelectorAll('.link-checkbox');
+      checkboxes.forEach(cb => {
+        cb.checked = isChecked;
+      });
+      updateBatchToolbar();
+    });
+  }
+
+  // 辅助函数: 根据组内复选框状态更新页眉全选框状态
+  function updateGroupHeaderCheckbox(content) {
+    const section = content.closest('.group-section');
+    if (!section) return;
+    const header = section.querySelector('.group-header');
+    if (!header) return;
+    const selectAllCheckbox = header.querySelector('.group-select-all');
+    if (!selectAllCheckbox) return;
+    
+    const checkboxes = content.querySelectorAll('.link-checkbox');
+    const checkedCount = Array.from(checkboxes).filter(cb => cb.checked).length;
+    
+    selectAllCheckbox.checked = checkedCount === checkboxes.length && checkboxes.length > 0;
+    selectAllCheckbox.indeterminate = checkedCount > 0 && checkedCount < checkboxes.length;
+  }
+  
   // 获取访问记录
   function getVisitedLinks() {
     try {
@@ -208,10 +240,15 @@ document.addEventListener("DOMContentLoaded", () => {
       const header = document.createElement("div");
       header.className = "group-header";
       header.innerHTML = `
-        <span>${domain} (${groups[domain].length})</span>
+        <div class="group-header-left">
+          <input type="checkbox" class="group-select-all" title="全选/取消全选">
+          <span>${domain} (${groups[domain].length})</span>
+        </div>
         <span class="group-toggle">▾</span>
       `;
-      header.onclick = () => {
+      header.onclick = (e) => {
+        // 如果点击的是复选框，不处理折叠
+        if (e.target.classList.contains('group-select-all')) return;
         header.classList.toggle("collapsed");
         content.classList.toggle("collapsed");
       };
@@ -234,6 +271,9 @@ document.addEventListener("DOMContentLoaded", () => {
       section.appendChild(header);
       section.appendChild(content);
       linksList.appendChild(section);
+      
+      // 设置全选逻辑
+      setupGroupSelectAll(header, content);
     });
   }
   
@@ -249,13 +289,17 @@ document.addEventListener("DOMContentLoaded", () => {
       const header = document.createElement("div");
       header.className = "group-header";
       header.innerHTML = `
-        <span>
-          <span class="group-color" style="background: #9E9E9E; display: inline-block; width: 16px; height: 16px; border-radius: 3px; margin-right: 8px; vertical-align: middle;"></span>
-          全局（无分组） (${globalLinks.length})
-        </span>
+        <div class="group-header-left">
+          <input type="checkbox" class="group-select-all" title="全选/取消全选">
+          <span>
+            <span class="group-color" style="background: #9E9E9E; display: inline-block; width: 16px; height: 16px; border-radius: 3px; margin-right: 8px; vertical-align: middle;"></span>
+            全局（无分组） (${globalLinks.length})
+          </span>
+        </div>
         <span class="group-toggle">▾</span>
       `;
-      header.onclick = () => {
+      header.onclick = (e) => {
+        if (e.target.classList.contains('group-select-all')) return;
         header.classList.toggle("collapsed");
         content.classList.toggle("collapsed");
       };
@@ -278,6 +322,9 @@ document.addEventListener("DOMContentLoaded", () => {
       section.appendChild(header);
       section.appendChild(content);
       linksList.appendChild(section);
+      
+      // 设置全选逻辑
+      setupGroupSelectAll(header, content);
     }
     
     // 显示各个分组
@@ -292,13 +339,17 @@ document.addEventListener("DOMContentLoaded", () => {
       const header = document.createElement("div");
       header.className = "group-header";
       header.innerHTML = `
-        <span>
-          <span class="group-color" style="background: ${group.color}; display: inline-block; width: 16px; height: 16px; border-radius: 3px; margin-right: 8px; vertical-align: middle;"></span>
-          ${group.name} (${groupLinks.length})
-        </span>
+        <div class="group-header-left">
+          <input type="checkbox" class="group-select-all" title="全选/取消全选">
+          <span>
+            <span class="group-color" style="background: ${group.color}; display: inline-block; width: 16px; height: 16px; border-radius: 3px; margin-right: 8px; vertical-align: middle;"></span>
+            ${group.name} (${groupLinks.length})
+          </span>
+        </div>
         <span class="group-toggle">▾</span>
       `;
-      header.onclick = () => {
+      header.onclick = (e) => {
+        if (e.target.classList.contains('group-select-all')) return;
         header.classList.toggle("collapsed");
         content.classList.toggle("collapsed");
       };
@@ -321,6 +372,9 @@ document.addEventListener("DOMContentLoaded", () => {
       section.appendChild(header);
       section.appendChild(content);
       linksList.appendChild(section);
+      
+      // 设置全选逻辑
+      setupGroupSelectAll(header, content);
     });
   }
   
@@ -401,10 +455,14 @@ document.addEventListener("DOMContentLoaded", () => {
       const header = document.createElement("div");
       header.className = "group-header";
       header.innerHTML = `
-        <span>📅 ${group.display} (${group.links.length})</span>
+        <div class="group-header-left">
+          <input type="checkbox" class="group-select-all" title="全选/取消全选">
+          <span>📅 ${group.display} (${group.links.length})</span>
+        </div>
         <span class="group-toggle">▾</span>
       `;
-      header.onclick = () => {
+      header.onclick = (e) => {
+        if (e.target.classList.contains('group-select-all')) return;
         header.classList.toggle("collapsed");
         content.classList.toggle("collapsed");
       };
@@ -427,6 +485,9 @@ document.addEventListener("DOMContentLoaded", () => {
       section.appendChild(header);
       section.appendChild(content);
       linksList.appendChild(section);
+      
+      // 设置全选逻辑
+      setupGroupSelectAll(header, content);
     });
   }
   
@@ -444,10 +505,14 @@ document.addEventListener("DOMContentLoaded", () => {
       const header = document.createElement("div");
       header.className = "group-header";
       header.innerHTML = `
-        <span>📝 有备注 (${withNote.length})</span>
+        <div class="group-header-left">
+          <input type="checkbox" class="group-select-all" title="全选/取消全选">
+          <span>📝 有备注 (${withNote.length})</span>
+        </div>
         <span class="group-toggle">▾</span>
       `;
-      header.onclick = () => {
+      header.onclick = (e) => {
+        if (e.target.classList.contains('group-select-all')) return;
         header.classList.toggle("collapsed");
         content.classList.toggle("collapsed");
       };
@@ -470,6 +535,9 @@ document.addEventListener("DOMContentLoaded", () => {
       section.appendChild(header);
       section.appendChild(content);
       linksList.appendChild(section);
+      
+      // 设置全选逻辑
+      setupGroupSelectAll(header, content);
     }
     
     if (withoutNote.length > 0) {
@@ -479,10 +547,14 @@ document.addEventListener("DOMContentLoaded", () => {
       const header = document.createElement("div");
       header.className = "group-header";
       header.innerHTML = `
-        <span>📭 无备注 (${withoutNote.length})</span>
+        <div class="group-header-left">
+          <input type="checkbox" class="group-select-all" title="全选/取消全选">
+          <span>📭 无备注 (${withoutNote.length})</span>
+        </div>
         <span class="group-toggle">▾</span>
       `;
-      header.onclick = () => {
+      header.onclick = (e) => {
+        if (e.target.classList.contains('group-select-all')) return;
         header.classList.toggle("collapsed");
         content.classList.toggle("collapsed");
       };
@@ -505,6 +577,9 @@ document.addEventListener("DOMContentLoaded", () => {
       section.appendChild(header);
       section.appendChild(content);
       linksList.appendChild(section);
+      
+      // 设置全选逻辑
+      setupGroupSelectAll(header, content);
     }
   }
   
@@ -562,6 +637,11 @@ document.addEventListener("DOMContentLoaded", () => {
     const noteDisplay = link.note 
       ? `<div class="link-note">📝 备注: ${escapeHtml(link.note)}</div>`
       : '';
+      
+    // 描述显示
+    const descDisplay = link.desc
+      ? `<div class="link-description" title="${escapeHtml(link.desc)}">${escapeHtml(link.desc)}</div>`
+      : '';
     
     card.innerHTML = `
       <input type="checkbox" class="link-checkbox" data-id="${link.id}" style="margin-right: 10px; cursor: pointer;">
@@ -570,6 +650,7 @@ document.addEventListener("DOMContentLoaded", () => {
         <a href="${escapeHtml(link.url)}" class="link-url" target="_blank" data-url="${escapeHtml(link.url)}">${escapeHtml(link.url)}</a>
         <div class="link-source">来源: ${escapeHtml(link.title || link.page || '未知')} ${groupBadge} ${duplicateBadge}</div>
         <div class="link-date">保存时间: ${escapeHtml(link.date || '')}</div>
+        ${descDisplay}
         ${noteDisplay}
         ${visitInfo}
         <div class="link-actions">
@@ -579,11 +660,54 @@ document.addEventListener("DOMContentLoaded", () => {
           <button class="link-btn link-btn-delete" data-id="${link.id}">🗑️ 删除</button>
         </div>
       </div>
+      <div class="link-snapshot" id="snapshot-${link.id}" title="查看大图预览">
+        <div class="no-snapshot">🖼️</div>
+      </div>
     `;
+
+    // 异步加载快照
+    if (link.hasSnapshot) {
+      DB.getSnapshot(link.id).then(dataUrl => {
+        if (dataUrl && dataUrl.startsWith('data:image')) {
+          const snapshotEl = card.querySelector(`#snapshot-${link.id}`);
+          if (snapshotEl) {
+            snapshotEl.innerHTML = '';
+            const img = document.createElement('img');
+            img.src = dataUrl;
+            img.alt = '快照预览';
+            img.onclick = (e) => {
+              e.stopPropagation();
+              showPreviewModal(dataUrl, link.clickPoint);
+            };
+            snapshotEl.appendChild(img);
+
+            // 如果有点击位置信息，添加标记
+            if (link.clickPoint) {
+              const { x, y, viewportW, viewportH } = link.clickPoint;
+              if (viewportW && viewportH) {
+                const marker = document.createElement('div');
+                marker.className = 'snapshot-marker';
+                marker.style.left = `${(x / viewportW) * 100}%`;
+                marker.style.top = `${(y / viewportH) * 100}%`;
+                snapshotEl.appendChild(marker);
+              }
+            }
+          }
+        }
+      }).catch(err => {
+        console.error("加载快照失败:", err);
+      });
+    }
     
     // 复选框事件
     const checkbox = card.querySelector('.link-checkbox');
-    checkbox.addEventListener('change', updateBatchToolbar);
+    checkbox.addEventListener('change', () => {
+      updateBatchToolbar();
+      const content = card.closest('.group-content');
+      if (content) {
+        updateGroupHeaderCheckbox(content);
+      }
+    });
     
     // 点击链接记录访问(左键和中键都记录)
     const linkEl = card.querySelector(".link-url");
@@ -838,6 +962,9 @@ document.addEventListener("DOMContentLoaded", () => {
   function deleteLink(id) {
     if (!confirm("确定要删除这个链接吗？")) return;
     
+    // 删除对应的快照
+    DB.deleteSnapshot(id);
+    
     chrome.storage.local.get({ links: [] }, (res) => {
       const links = (res.links || []).filter(l => l.id !== id);
       chrome.storage.local.set({ links }, () => {
@@ -852,6 +979,9 @@ document.addEventListener("DOMContentLoaded", () => {
   // 清空全部
   clearAllBtn.addEventListener("click", () => {
     if (!confirm(`确定要删除所有 ${allLinks.length} 个链接吗？`)) return;
+    
+    // 清空所有快照
+    DB.clearAllSnapshots();
     
     chrome.storage.local.set({ links: [] }, () => {
       allLinks = [];
@@ -880,9 +1010,41 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   });
   
-  // 保存HTML按钮
-  saveHtmlBtn.addEventListener("click", () => {
-    exportLinks("html");
+  // 保存HTML下拉菜单事件
+  const htmlDropdown = document.querySelector(".dropdown-content");
+  
+  document.getElementById("exportAllHtmlSnap")?.addEventListener("click", (e) => { 
+    e.preventDefault(); 
+    htmlDropdown.classList.remove("show");
+    exportLinks("html", { snapshots: true, selected: false }); 
+  });
+  document.getElementById("exportAllHtmlNoSnap")?.addEventListener("click", (e) => { 
+    e.preventDefault(); 
+    htmlDropdown.classList.remove("show");
+    exportLinks("html", { snapshots: false, selected: false }); 
+  });
+  document.getElementById("exportSelectedHtmlSnap")?.addEventListener("click", (e) => { 
+    e.preventDefault(); 
+    htmlDropdown.classList.remove("show");
+    exportLinks("html", { snapshots: true, selected: true }); 
+  });
+  document.getElementById("exportSelectedHtmlNoSnap")?.addEventListener("click", (e) => { 
+    e.preventDefault(); 
+    htmlDropdown.classList.remove("show");
+    exportLinks("html", { snapshots: false, selected: true }); 
+  });
+
+  // 保存HTML默认按钮 (点击展开)
+  saveHtmlBtn.addEventListener("click", (e) => {
+    e.stopPropagation();
+    htmlDropdown.classList.toggle("show");
+  });
+
+  // 点击页面其他地方关闭下拉菜单
+  window.addEventListener("click", (e) => {
+    if (htmlDropdown.classList.contains("show") && !e.target.closest(".dropdown")) {
+      htmlDropdown.classList.remove("show");
+    }
   });
   
   // 保存TXT按钮
@@ -920,9 +1082,23 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   }
   
-  // 导出链接（复用popup.js的导出逻辑）
-  function exportLinks(format) {
-    if (allLinks.length === 0) {
+  // 导出链接 (异步支持快照)
+  async function exportLinks(format, options = { snapshots: true, selected: false }) {
+    let linksToExport = allLinks;
+    
+    if (options.selected) {
+      const selectedIds = Array.from(document.querySelectorAll('.link-checkbox:checked')).map(cb => {
+        return parseInt(cb.dataset.id);
+      });
+      
+      if (selectedIds.length === 0) {
+        alert("请先选择要导出的链接。");
+        return;
+      }
+      linksToExport = allLinks.filter(l => selectedIds.includes(l.id));
+    }
+
+    if (linksToExport.length === 0) {
       alert("没有链接可导出。");
       return;
     }
@@ -937,14 +1113,14 @@ document.addEventListener("DOMContentLoaded", () => {
       date.getSeconds().toString().padStart(2, '0');
     
     if (format === "txt") {
-      const out = allLinks.map((l, i) => 
+      const out = linksToExport.map((l, i) => 
         `${i + 1}. ${l.url}\n来源: ${l.title || l.page || '未知'}\n日期: ${l.date || ''}`
       ).join("\n\n");
-      const filename = `保存了${allLinks.length}个链接 - ${fileTimestamp}.txt`;
+      const filename = `保存了${linksToExport.length}个链接 - ${fileTimestamp}.txt`;
       downloadBlob(out, filename, "text/plain");
     } else if (format === "csv") {
       const rows = ["序号,网址,来源,日期"];
-      allLinks.forEach((l, i) => {
+      linksToExport.forEach((l, i) => {
         const url = `"${String(l.url || "").replace(/"/g, '""')}"`;
         const source = `"${String(l.title || l.page || "").replace(/"/g, '""')}"`;
         const date = `"${l.date || ""}"`;
@@ -952,25 +1128,31 @@ document.addEventListener("DOMContentLoaded", () => {
       });
       downloadBlob(rows.join("\n"), "links.csv", "text/csv");
     } else if (format === "html") {
-      // 使用Export Tabs的样式生成HTML
+      // 预先获取快照 (如果需要)
+      const snapshots = {};
+      if (options.snapshots) {
+        for (const link of linksToExport) {
+          if (link.hasSnapshot) {
+            try {
+              const imgData = await DB.getSnapshot(link.id);
+              if (imgData) snapshots[link.id] = imgData;
+            } catch (e) {
+              console.error("导出HTML时获取快照失败:", e);
+            }
+          }
+        }
+      }
+
       const timestamp = new Date().toLocaleString('zh-CN');
-      const date = new Date();
-      const fileTimestamp = date.getFullYear() + '-' + 
-        (date.getMonth() + 1).toString().padStart(2, '0') + '-' + 
-        date.getDate().toString().padStart(2, '0') + '-' + 
-        date.getHours().toString().padStart(2, '0') + 
-        date.getMinutes().toString().padStart(2, '0') + 
-        date.getSeconds().toString().padStart(2, '0');
-      
-      const htmlContent = generateFullHTML(allLinks, allGroups, timestamp);
-      const filename = `保存了${allLinks.length}个链接 - ${fileTimestamp}.html`;
+      const htmlContent = generateFullHTML(linksToExport, allGroups, timestamp, snapshots, options.snapshots);
+      const filename = `保存了${linksToExport.length}个链接 - ${fileTimestamp}.html`;
       downloadBlob(htmlContent, filename, "text/html");
     } else if (format === "doc") {
       const docParts = [
         "<!doctype html><html><head><meta charset='utf-8'></head><body>",
         "<h2>保存的链接</h2>"
       ];
-      allLinks.forEach((l, i) => {
+      linksToExport.forEach((l, i) => {
         const safeUrl = escapeHtml(l.url);
         const safeSource = escapeHtml(l.title || l.page || "");
         const safeDate = escapeHtml(l.date || "");
@@ -992,12 +1174,29 @@ document.addEventListener("DOMContentLoaded", () => {
   }
   
   // 导出数据为JSON（用于扩展间同步）
-  function exportData() {
+  async function exportData() {
+    const snapshots = {};
+    
+    // 异步获取所有快照
+    for (const link of allLinks) {
+      if (link.hasSnapshot) {
+        try {
+          const imgData = await DB.getSnapshot(link.id);
+          if (imgData) {
+            snapshots[link.id] = imgData;
+          }
+        } catch (e) {
+          console.error(`导出快照失败 (ID: ${link.id}):`, e);
+        }
+      }
+    }
+
     const data = {
-      version: '1.0',
+      version: '1.1',
       timestamp: new Date().toISOString(),
       links: allLinks,
-      groups: allGroups
+      groups: allGroups,
+      snapshots: snapshots
     };
     
     const now = new Date();
@@ -1015,7 +1214,7 @@ document.addEventListener("DOMContentLoaded", () => {
   // 导入数据从JSON
   function importData(file) {
     const reader = new FileReader();
-    reader.onload = (e) => {
+    reader.onload = async (e) => {
       try {
         const data = JSON.parse(e.target.result);
         
@@ -1027,24 +1226,42 @@ document.addEventListener("DOMContentLoaded", () => {
         
         const importLinksCount = (data.links || []).length;
         const importGroupsCount = (data.groups || []).length;
+        const hasSnapshots = !!(data.snapshots && Object.keys(data.snapshots).length > 0);
         
         // 询问是否覆盖或合并，并显示要导入的数量
-        const choice = confirm(`准备导入 ${importLinksCount} 个链接和 ${importGroupsCount} 个分组\n\n是否覆盖现有数据？\n点击"确定"覆盖，点击"取消"合并`);
+        const choice = confirm(`准备导入 ${importLinksCount} 个链接和 ${importGroupsCount} 个分组${hasSnapshots ? '（包含快照）' : ''}\n\n是否覆盖现有数据？\n点击"确定"覆盖，点击"取消"合并`);
         
+        let snapshotsToSave = []; // [{id, data}]
+
         if (choice) {
           // 覆盖模式
           allLinks = data.links || [];
           allGroups = data.groups || [];
+          
+          // 准备覆盖快照
+          if (hasSnapshots) {
+            await DB.clearAllSnapshots();
+            for (const id in data.snapshots) {
+              snapshotsToSave.push({ id, data: data.snapshots[id] });
+            }
+          }
         } else {
           // 合并模式 - 避免ID冲突
           const maxLinkId = Math.max(...allLinks.map(l => l.id || 0), 0);
           const maxGroupId = Math.max(...allGroups.map(g => g.id || 0), 0);
           
+          const oldToNewLinkIdMap = {};
+
           // 重新分配ID
-          const importedLinks = (data.links || []).map((link, idx) => ({
-            ...link,
-            id: maxLinkId + idx + 1
-          }));
+          const importedLinks = (data.links || []).map((link, idx) => {
+            const oldId = link.id;
+            const newId = maxLinkId + idx + 1;
+            oldToNewLinkIdMap[oldId] = newId;
+            return {
+              ...link,
+              id: newId
+            };
+          });
           
           const importedGroups = (data.groups || []).map((group, idx) => ({
             ...group,
@@ -1063,10 +1280,25 @@ document.addEventListener("DOMContentLoaded", () => {
             }
           });
           
+          // 准备合并快照
+          if (hasSnapshots) {
+            for (const oldId in data.snapshots) {
+              const newId = oldToNewLinkIdMap[oldId];
+              if (newId) {
+                snapshotsToSave.push({ id: newId, data: data.snapshots[oldId] });
+              }
+            }
+          }
+
           allLinks = [...allLinks, ...importedLinks];
           allGroups = [...allGroups, ...importedGroups];
         }
         
+        // 保存快照到 IndexedDB
+        for (const s of snapshotsToSave) {
+          await DB.saveSnapshot(s.id, s.data);
+        }
+
         // 保存到存储
         chrome.storage.local.set({ 
           links: allLinks,
@@ -1077,9 +1309,10 @@ document.addEventListener("DOMContentLoaded", () => {
           updateGroupCount();
           updateBadge();
           updateContextMenus(); // 更新右键菜单
-          alert(`成功导入 ${importLinksCount} 个链接和 ${importGroupsCount} 个分组`);
+          alert(`成功导入 ${importLinksCount} 个链接和 ${importGroupsCount} 个分组${snapshotsToSave.length > 0 ? `（及 ${snapshotsToSave.length} 张快照）` : ''}`);
         });
       } catch (err) {
+        console.error('导入失败详情:', err);
         alert('导入失败：' + err.message);
       }
     };
@@ -1111,7 +1344,7 @@ document.addEventListener("DOMContentLoaded", () => {
   }
   
   // 生成完整HTML（完全复刻Export Tabs样式）
-  function generateFullHTML(links, groups, timestamp) {
+  function generateFullHTML(links, groups, timestamp, snapshots = {}, includeSnapshots = true) {
     const tabCount = links.length;
 
     // 辅助函数：获取域名
@@ -1141,6 +1374,28 @@ document.addEventListener("DOMContentLoaded", () => {
     function generateTabEntry(link, index) {
       const saveTime = link.date ? `<div class="tab-save-time">保存时间: ${escapeHtml(link.date)}</div>` : '';
       const noteDisplay = link.note ? `<div class="tab-note">📝 备注: ${escapeHtml(link.note)}</div>` : '';
+      
+      // 快照显示
+      let snapshotHTML = '';
+      const snapshotData = snapshots[link.id];
+      if (includeSnapshots && snapshotData) {
+        let markerHTML = '';
+        if (link.clickPoint) {
+          const { x, y, viewportW, viewportH } = link.clickPoint;
+          if (viewportW && viewportH) {
+            const left = (x / viewportW) * 100;
+            const top = (y / viewportH) * 100;
+            markerHTML = `<div class="snapshot-marker" style="left: ${left}%; top: ${top}%;"></div>`;
+          }
+        }
+        snapshotHTML = `
+          <div class="tab-snapshot" data-id="${link.id}" onclick="window.showPreview(this)">
+            <img src="${snapshotData}" alt="快照">
+            ${markerHTML}
+          </div>
+        `;
+      }
+
       return `
         <div class="tab-entry" data-url="${escapeHtml(link.url)}" data-title="${escapeHtml(link.title || link.page || '')}" data-group-id="${link.groupId || ''}" data-note="${escapeHtml(link.note || '')}">
           <span class="tab-index">${index}</span>
@@ -1165,6 +1420,7 @@ document.addEventListener("DOMContentLoaded", () => {
               </label>
             </div>
           </div>
+          ${snapshotHTML}
         </div>`;
     }
 
@@ -1256,7 +1512,16 @@ document.addEventListener("DOMContentLoaded", () => {
         </div>`;
     });
 
-    const ALL_TABS_JSON = JSON.stringify(links.map(l => ({ url: l.url, title: l.title || l.page || '', date: l.date, groupId: l.groupId, note: l.note || '' })));
+    const ALL_TABS_JSON = JSON.stringify(links.map(l => ({ 
+      id: l.id,
+      url: l.url, 
+      title: l.title || l.page || '', 
+      date: l.date, 
+      groupId: l.groupId, 
+      note: l.note || '',
+      clickPoint: l.clickPoint
+    })));
+    const ALL_SNAPSHOTS_JSON = includeSnapshots ? JSON.stringify(snapshots) : '{}';
     const ALL_GROUPS_JSON = JSON.stringify(groups);
 
     return `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>保存的链接 - ${timestamp}</title>
@@ -1315,6 +1580,17 @@ document.addEventListener("DOMContentLoaded", () => {
         .visit-info.visited-count-6 { color: #1E88E5 !important; }
         .visit-info.visited-count-7 { color: #5E35B1 !important; }
         .empty-state { text-align: center; padding: 40px; color: #666; }
+        
+        /* Snapshot styles in Exported HTML */
+        .tab-snapshot { width: 120px; height: 75px; border-radius: 4px; overflow: hidden; background: #eee; border: 1px solid #ddd; flex-shrink: 0; cursor: pointer; position: relative; }
+        .tab-snapshot img { width: 100%; height: 100%; object-fit: cover; display: block; }
+        .tab-snapshot .snapshot-marker { position: absolute; width: 8px; height: 8px; background: #ff4444; border-radius: 50%; transform: translate(-50%, -50%); border: 1px solid white; box-shadow: 0 0 3px rgba(0,0,0,0.5); pointer-events: none; }
+        
+        .preview-modal { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.8); display: none; justify-content: center; align-items: center; z-index: 10000; }
+        .preview-modal.show { display: flex; }
+        .preview-container { position: relative; display: inline-block; line-height: 0; max-width: 95vw; max-height: 95vh; }
+        .preview-container img { max-width: 100%; max-height: 100%; display: block; border-radius: 8px; background: white; box-shadow: 0 0 30px rgba(0,0,0,0.5); }
+        .preview-container .snapshot-marker { position: absolute; width: 16px; height: 16px; background: #ff4444; border-radius: 50%; transform: translate(-50%, -50%); border: 2px solid white; box-shadow: 0 0 5px rgba(0,0,0,0.8); pointer-events: none; }
       </style></head><body>
       <div class="static-header">
         <div class="stats"><strong>总链接数:</strong> ${tabCount} | <strong>保存时间:</strong> ${timestamp}</div>
@@ -1383,10 +1659,19 @@ document.addEventListener("DOMContentLoaded", () => {
           }).join('')}
         </div>
       </div>
+      
+      <!-- Preview Modal for Exported HTML -->
+      <div id="previewModal" class="preview-modal" onclick="if(event.target===this)this.classList.remove('show')">
+        <div class="preview-container">
+          <img id="previewImage" src="" alt="预览">
+        </div>
+      </div>
+
       <script>
         const STORAGE_KEY = 'tabSaverVisitedLinks';
         const MARKERS_STORAGE_KEY = 'tabSaverMarkers';
         const ALL_TABS_DATA = ${ALL_TABS_JSON};
+        const ALL_SNAPSHOTS_DATA = ${ALL_SNAPSHOTS_JSON};
         const ALL_GROUPS_DATA = ${ALL_GROUPS_JSON};
         let currentSortOrder = 'desc'; // 'desc' = 新→旧(默认), 'asc' = 旧→新
 
@@ -1528,6 +1813,40 @@ document.addEventListener("DOMContentLoaded", () => {
           window.allGroupsCollapsed = collapsing;
         };
 
+        window.showPreview = (el) => {
+          const id = el.dataset.id;
+          const dataUrl = ALL_SNAPSHOTS_DATA[id];
+          const tabData = ALL_TABS_DATA.find(t => String(t.id) === String(id));
+          const clickPoint = tabData ? tabData.clickPoint : null;
+          
+          if (!dataUrl) return;
+
+          const modal = document.getElementById('previewModal');
+          const img = document.getElementById('previewImage');
+          const container = modal.querySelector('.preview-container');
+          
+          // Clear old markers
+          container.querySelectorAll('.snapshot-marker').forEach(m => m.remove());
+          
+          img.src = dataUrl;
+          if (clickPoint) {
+            const { x, y, viewportW, viewportH } = clickPoint;
+            if (viewportW && viewportH) {
+              const marker = document.createElement('div');
+              marker.className = 'snapshot-marker';
+              marker.style.left = (x / viewportW) * 100 + '%';
+              marker.style.top = (y / viewportH) * 100 + '%';
+              container.appendChild(marker);
+            }
+          }
+          modal.classList.add('show');
+        };
+
+        // Esc key to close modal
+        document.addEventListener('keydown', (e) => {
+          if (e.key === 'Escape') document.getElementById('previewModal').classList.remove('show');
+        });
+
         window.toggleSortOrder = () => {
           currentSortOrder = currentSortOrder === 'desc' ? 'asc' : 'desc';
           const btn = document.getElementById('sortOrderBtn');
@@ -1565,6 +1884,27 @@ document.addEventListener("DOMContentLoaded", () => {
         function generateTabEntryInternal(link, i) {
           const saveTime = link.date ? \`<div class="tab-save-time">保存时间: \${link.date}</div>\` : '';
           const noteDisplay = link.note ? \`<div class="tab-note">📝 备注: \${link.note}</div>\` : '';
+          // 快照显示
+          let snapshotHTML = '';
+          const snapshotData = ALL_SNAPSHOTS_DATA[link.id];
+          if (${includeSnapshots} && snapshotData) {
+            let markerHTML = '';
+            if (link.clickPoint) {
+              const { x, y, viewportW, viewportH } = link.clickPoint;
+              if (viewportW && viewportH) {
+                const left = (x / viewportW) * 100;
+                const top = (y / viewportH) * 100;
+                markerHTML = \`<div class="snapshot-marker" style="left: \${left}%; top: \${top}%;"></div>\`;
+              }
+            }
+            snapshotHTML = \`
+              <div class="tab-snapshot" data-id="\${link.id}" onclick="window.showPreview(this)">
+                <img src="\${snapshotData}" alt="快照">
+                \${markerHTML}
+              </div>
+            \`;
+          }
+
           return \`<div class="tab-entry" data-url="\${link.url}" data-title="\${link.title || ''}" data-note="\${link.note || ''}">
             <span class="tab-index">\${i+1}</span>
             <input type="checkbox" class="tab-checkbox" onclick="window.updateSelectionState()">
@@ -1582,6 +1922,7 @@ document.addEventListener("DOMContentLoaded", () => {
                 <label class="marker-checkbox marker-skipped"><input type="checkbox" class="marker-skipped-cb" onchange="window.saveMarker(this, 'skipped')"><span>✗ 未下载</span></label>
               </div>
             </div>
+            \${snapshotHTML}
           </div>\`;
         }
 
@@ -2029,16 +2370,16 @@ document.addEventListener("DOMContentLoaded", () => {
     const linkCount = allLinks.filter(link => link.groupId === groupId).length;
     
     if (linkCount > 0) {
-      if (!confirm(`该分组中有 ${linkCount} 个链接，删除后这些链接将移动到全局（无分组）。确定要删除吗？`)) {
+      if (!confirm(`该分组中有 ${linkCount} 个链接，删除后这些链接也将被永久删除。确定要删除吗？`)) {
         return;
       }
       
-      // 将该分组的链接移动到全局
-      allLinks.forEach(link => {
-        if (link.groupId === groupId) {
-          link.groupId = null;
-        }
-      });
+      // 删除关联的快照
+      const linksToDelete = allLinks.filter(link => link.groupId === groupId);
+      linksToDelete.forEach(link => DB.deleteSnapshot(link.id));
+      
+      // 直接从 allLinks 中删除该分组的所有链接
+      allLinks = allLinks.filter(link => link.groupId !== groupId);
       
       chrome.storage.local.set({ links: allLinks }, () => {
         // 删除分组
@@ -2048,6 +2389,8 @@ document.addEventListener("DOMContentLoaded", () => {
           updateContextMenus();
           renderLinks();
           updateGroupCount();
+          updateCount(); // 更新总计数
+          updateBadge(); // 更新工具栏图标计数
         });
       });
     } else {
@@ -2202,6 +2545,9 @@ document.addEventListener("DOMContentLoaded", () => {
     if (selectedIds.length === 0) return;
     
     if (confirm(`确定要删除这 ${selectedIds.length} 个链接吗？`)) {
+      // 删除关联的快照
+      selectedIds.forEach(id => DB.deleteSnapshot(id));
+      
       // 直接删除，不调用deleteLink避免重复确认
       allLinks = allLinks.filter(l => !selectedIds.includes(l.id));
       chrome.storage.local.set({ links: allLinks }, () => {
@@ -2301,6 +2647,65 @@ document.addEventListener("DOMContentLoaded", () => {
     filterDuplicateBtn.addEventListener('click', filterDuplicates);
   }
   
+  // 显示大图预览弹窗
+  function showPreviewModal(dataUrl, clickPoint) {
+    let modal = document.getElementById('previewModal');
+    if (!modal) {
+      modal = document.createElement('div');
+      modal.id = 'previewModal';
+      modal.className = 'preview-modal';
+      modal.style.zIndex = '20000';
+      document.body.appendChild(modal);
+      
+      // 监听 Esc 键关闭
+      document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape' && modal.classList.contains('show')) {
+          modal.classList.remove('show');
+        }
+      });
+    }
+
+    // 每次显示都重新构建内部结构，确保容器和点击监听器是最新的
+    modal.innerHTML = `
+      <div class="preview-container" style="position: relative; display: inline-block; line-height: 0; max-width: 95vw; max-height: 95vh;">
+        <img id="previewImage" src="${dataUrl}" alt="预览大图" style="max-width: 100%; max-height: 100%; display: block; border-radius: 8px; box-shadow: 0 0 30px rgba(0,0,0,0.5); background: white;">
+      </div>
+    `;
+    
+    modal.onclick = (e) => {
+      if (e.target === modal) modal.classList.remove('show');
+    };
+
+    const container = modal.querySelector('.preview-container');
+    
+    // 添加点击位置标记
+    if (clickPoint) {
+      const { x, y, viewportW, viewportH } = clickPoint;
+      if (viewportW && viewportH) {
+        const marker = document.createElement('div');
+        marker.className = 'snapshot-marker';
+        marker.style.left = `${(x / viewportW) * 100}%`;
+        marker.style.top = `${(y / viewportH) * 100}%`;
+        // 大图中的标记可以稍微大一点
+        marker.style.width = '20px';
+        marker.style.height = '20px';
+        container.appendChild(marker);
+      }
+    }
+    
+    modal.classList.add('show');
+  }
+
+  // 快捷键支持：按下 Esc 关闭预览
+  window.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') {
+      const modal = document.getElementById('previewModal');
+      if (modal && modal.classList.contains('show')) {
+        modal.classList.remove('show');
+      }
+    }
+  });
+
   // 初始加载
   loadLinks();
 });

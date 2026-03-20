@@ -1,4 +1,5 @@
 // background.js - create context menu for link + page; save items with metadata
+importScripts('db.js');
 
 // 默认没有分组，用户自己创建
 const DEFAULT_GROUPS = [];
@@ -173,13 +174,12 @@ chrome.runtime.onInstalled.addListener(() => {
   });
 });
 
-chrome.contextMenus.onClicked.addListener((info, tab) => {
+chrome.contextMenus.onClicked.addListener(async (info, tab) => {
   try {
     const menuId = info.menuItemId;
     
     // 处理新建分组
     if (menuId === "saveLink_newGroup" || menuId === "savePage_newGroup") {
-      // 打开管理页面并聚焦到分组管理
       chrome.tabs.create({ 
         url: chrome.runtime.getURL('manager.html') + '?action=newGroup'
       });
@@ -187,7 +187,7 @@ chrome.contextMenus.onClicked.addListener((info, tab) => {
     }
     
     // 解析菜单ID获取分组ID
-    let groupId = null; // null表示全局（无分组）
+    let groupId = null;
     let isSaveLink = false;
     
     if (menuId === 'saveLink_global') {
@@ -217,42 +217,94 @@ chrome.contextMenus.onClicked.addListener((info, tab) => {
       title = tab?.title || savedUrl;
     }
 
-    if (!savedUrl) {
-      console.warn("No URL to save:", info);
-      return;
-    }
+    if (!savedUrl) return;
 
     let page = "";
     try { page = tab?.url ? new URL(tab.url).hostname : ""; } catch (e) { page = ""; }
 
+    const itemId = Date.now();
     const item = {
-      id: Date.now(),
+      id: itemId,
       title: String(title),
       url: String(savedUrl),
       page,
       date: formatDateDDMMYYYY(new Date()),
       groupId: groupId,
-      favorite: false
+      favorite: false,
+      desc: "" // 初始化描述
     };
 
-    chrome.storage.local.get({ links: [] }, (res) => {
-      const links = Array.isArray(res.links) ? res.links : [];
-      links.unshift(item); // newest-first
-      
-      // 立即更新角标（不等待存储）
-      const count = links.length;
-      if (count > 0) {
-        chrome.action.setBadgeText({ text: String(Math.min(999, count)) });
-        chrome.action.setBadgeBackgroundColor({ color: '#2196F3' });
-        chrome.action.setBadgeTextColor({ color: '#FFFFFF' });
+    // 尝试抓取快照和描述
+    if (tab && tab.id) {
+      try {
+        // 抓取快照 (DataURL)
+        const dataUrl = await chrome.tabs.captureVisibleTab(tab.windowId, { format: 'jpeg', quality: 80 });
+        if (dataUrl) {
+          await DB.saveSnapshot(itemId, dataUrl);
+          item.hasSnapshot = true;
+        }
+
+        // 获取窗口信息和描述
+        const results = await chrome.scripting.executeScript({
+          target: { tabId: tab.id },
+          func: () => {
+            const meta = document.querySelector('meta[name="description"]') || 
+                         document.querySelector('meta[property="og:description"]');
+            return {
+              desc: meta ? meta.getAttribute('content') : "",
+              width: window.innerWidth,
+              height: window.innerHeight,
+              dpr: window.devicePixelRatio
+            };
+          }
+        });
+
+        if (results && results[0] && results[0].result) {
+          const res = results[0].result;
+          item.desc = res.desc;
+
+          // 获取最后一次右键位置
+          chrome.storage.local.get(['lastRightClick'], (data) => {
+            const lastClick = data.lastRightClick || {};
+            // 如果时间太久（超过10秒），可能不是同一次右键，则回退到 info.x/y
+            const useLastClick = lastClick.time && (Date.now() - lastClick.time < 10000);
+            
+            item.clickPoint = {
+              x: useLastClick ? lastClick.x : info.x,
+              y: useLastClick ? lastClick.y : info.y,
+              viewportW: res.width,
+              viewportH: res.height,
+              dpr: res.dpr
+            };
+            
+            saveLinkItem(item);
+          });
+          return;
+        }
+      } catch (e) {
+        console.warn("抓取快照或描述失败:", e);
       }
-      
-      // 异步保存到存储
-      chrome.storage.local.set({ links }, () => {
-        console.log("Saved item:", item);
-      });
-    });
+    }
+    saveLinkItem(item);
   } catch (err) {
     console.error("contextMenus.onClicked error:", err);
   }
 });
+
+function saveLinkItem(item) {
+  chrome.storage.local.get({ links: [] }, (res) => {
+    const links = Array.isArray(res.links) ? res.links : [];
+    links.unshift(item);
+    
+    // 更新角标
+    const count = links.length;
+    if (count > 0) {
+      chrome.action.setBadgeText({ text: String(Math.min(999, count)) });
+      chrome.action.setBadgeBackgroundColor({ color: '#2196F3' });
+    }
+    
+    chrome.storage.local.set({ links }, () => {
+      console.log("已保存项目并包含快照:", item.hasSnapshot);
+    });
+  });
+}

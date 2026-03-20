@@ -44,7 +44,16 @@
       <div class="toolbar-actions">
         <button id="sortBtn" class="btn btn-secondary">⏱️ 按时间排序</button>
         <button id="filterDuplicateBtn" class="btn btn-secondary">🔍 过滤重复</button>
-        <button id="saveHtmlBtn" class="btn btn-primary">💾 保存HTML</button>
+        <div class="dropdown">
+          <button id="saveHtmlBtn" class="btn btn-primary">💾 保存HTML <span class="caret">▼</span></button>
+          <div class="dropdown-content">
+            <a href="#" id="exportAllHtmlSnap">全部链接 (带快照)</a>
+            <a href="#" id="exportAllHtmlNoSnap">全部链接 (无快照)</a>
+            <div class="dropdown-divider"></div>
+            <a href="#" id="exportSelectedHtmlSnap">选中链接 (带快照)</a>
+            <a href="#" id="exportSelectedHtmlNoSnap">选中链接 (无快照)</a>
+          </div>
+        </div>
         <button id="saveTxtBtn" class="btn btn-secondary">📄 保存TXT</button>
         <button id="exportDataBtn" class="btn btn-primary">📦 导出数据</button>
         <button id="importDataBtn" class="btn btn-secondary">📥 导入数据</button>
@@ -93,6 +102,7 @@
     </div>
   </div>
   
+  <script src="db.js"></script>
   <script src="manager.js"></script>
 </body>
 </html>

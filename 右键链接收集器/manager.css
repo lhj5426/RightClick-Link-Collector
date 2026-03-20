@@ -373,6 +373,70 @@ h1 {
   font-size: 12px;
 }
 
+.link-description {
+  color: var(--text-muted);
+  font-size: 13px;
+  line-height: 1.5;
+  margin-top: 6px;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  font-style: italic;
+}
+
+.link-snapshot {
+  position: relative; /* 重要：确保标记相对于缩略图定位 */
+  width: 160px;
+  height: 100px;
+  border-radius: 6px;
+  overflow: hidden;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  flex-shrink: 0;
+  cursor: pointer;
+  transition: transform 0.2s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.link-snapshot:hover {
+  transform: scale(1.05);
+}
+
+.link-snapshot img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.link-snapshot .no-snapshot {
+  font-size: 24px;
+  opacity: 0.3;
+}
+
+/* 快照点击位置标记 */
+.snapshot-marker {
+  position: absolute;
+  width: 14px;
+  height: 14px;
+  background: #ff4444;
+  border-radius: 50%;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+  box-shadow: 0 0 8px rgba(0, 0, 0, 0.8);
+  border: 2px solid white; /* 增加白边宽度以提高辨识度 */
+  z-index: 100;
+}
+
+@keyframes marker-pulse {
+  0% { transform: translate(-50%, -50%) scale(0.8); opacity: 0.8; }
+  50% { transform: translate(-50%, -50%) scale(1.2); opacity: 1; }
+  100% { transform: translate(-50%, -50%) scale(0.8); opacity: 0.8; }
+}
+
 .link-note {
   color: var(--text);
   font-size: 13px;
@@ -474,6 +538,21 @@ body.dark .link-note {
   display: flex;
   justify-content: space-between;
   align-items: center;
+  user-select: none;
+}
+
+.group-header-left {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex: 1;
+}
+
+.group-select-all {
+  width: 16px;
+  height: 16px;
+  cursor: pointer;
+  z-index: 2;
 }
 
 .group-header:hover {
@@ -803,4 +882,88 @@ body.dark .download-option:hover {
   color: white;
   background: #FF5722;
   margin-left: 8px;
+}
+
+
+/* 预览大图弹窗 */
+ .preview-modal {
+   display: none;
+   position: fixed;
+   top: 0;
+   left: 0;
+   width: 100%;
+   height: 100%;
+   background: rgba(0, 0, 0, 0.8);
+   z-index: 20000;
+   align-items: center;
+   justify-content: center;
+   cursor: zoom-out;
+ }
+ 
+ .preview-modal.show {
+   display: flex;
+ }
+ 
+ .preview-modal img {
+   border-radius: 8px;
+   box-shadow: 0 0 30px rgba(0, 0, 0, 0.5);
+   background: white;
+ }
+/* 导出下拉菜单 */
+.dropdown {
+  position: relative;
+  display: inline-block;
+}
+
+.dropdown-content {
+  display: none;
+  position: absolute;
+  background: var(--panel);
+  min-width: 180px;
+  box-shadow: 0 4px 20px var(--shadow);
+  z-index: 1000;
+  border-radius: 12px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  right: 0;
+  top: 100%;
+  margin-top: 8px;
+  border: 1px solid var(--border);
+  backdrop-filter: blur(10px);
+}
+
+.dropdown-content a {
+  color: var(--text);
+  padding: 12px 16px;
+  text-decoration: none;
+  display: block;
+  font-size: 14px;
+  transition: all 0.2s;
+  text-align: left;
+}
+
+.dropdown-content a:hover {
+  background: var(--background);
+  color: var(--accent);
+}
+
+.dropdown-divider {
+  height: 1px;
+  background: var(--border);
+  margin: 4px 0;
+}
+
+.dropdown-content.show {
+  display: block;
+}
+
+.caret {
+  font-size: 10px;
+  margin-left: 4px;
+  opacity: 0.8;
+}
+
+/* 防止下拉菜单被列表遮挡 */
+.toolbar {
+  z-index: 101; /* 列表项 z-index 是 1 */
 }
