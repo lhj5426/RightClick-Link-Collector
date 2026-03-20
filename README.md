@@ -2,11 +2,14 @@
 
 在不打开网页的情况下右键保存链接,可以导出HTML和TXT
 
+支持保存点右键点击快照 和右键鼠标位置
+
 支持分组功能 不同的链接可以通过右键保存到不同的分组里 
 
 点击工具栏 可以打开管理器页面 
 
 管理器页面支持 多种分组 排序 方式
+
 
 支持标记过滤重复收藏的链接
 
@@ -16,13 +19,23 @@
 
 方便扩展多浏览器同步
 
-<img width="553" height="482" alt="image" src="https://github.com/user-attachments/assets/5a69c68e-3ace-4fa5-91e6-dcc36ec4230a" />
 
-<img width="1560" height="893" alt="image" src="https://github.com/user-attachments/assets/7d92f0c4-0e31-4b1e-a494-c63b42b14277" />
+<img width="1515" height="985" alt="image" src="https://github.com/user-attachments/assets/74ad13d0-8fc6-41a5-aa95-76a6d6785b67" />
 
-<img width="300" height="264" alt="image" src="https://github.com/user-attachments/assets/510fbf19-1828-4e8a-a610-25c3095bac50" />
 
-<img width="1513" height="968" alt="image" src="https://github.com/user-attachments/assets/0d67e82a-ebc5-4e26-83cd-9740b9a22e67" />
+
+
+
+
+
+
+https://github.com/user-attachments/assets/9af602fc-fb5c-4033-a127-fef0699e4fa5
+
+
+https://github.com/user-attachments/assets/a4527844-5022-4e1e-a739-fe66f253732a
+
+
+
 
 
 E站很多画廊想下 但是一次打开太多链接 浏览器会很卡
