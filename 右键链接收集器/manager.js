@@ -151,6 +151,15 @@ document.addEventListener("DOMContentLoaded", () => {
       return sortOrder === "oldest" ? timeA - timeB : timeB - timeA;
     });
     
+    // 构建重复链接映射缓存
+    duplicateUrlMap = {};
+    allLinks.forEach(link => {
+      if (!duplicateUrlMap[link.url]) {
+        duplicateUrlMap[link.url] = [];
+      }
+      duplicateUrlMap[link.url].push(link.id);
+    });
+    
     if (visible.length === 0) {
       linksList.innerHTML = "";
       emptyState.classList.remove("hidden");
@@ -530,23 +539,16 @@ document.addEventListener("DOMContentLoaded", () => {
       groupBadge = `<span class="group-badge" style="background: #9E9E9E">无分组</span>`;
     }
     
-    // 检查是否是重复链接
-    const duplicateLinks = allLinks.filter(l => l.url === link.url);
-    const isDuplicate = duplicateLinks.length > 1;
+    // 检查是否是重复链接 - 优化：使用缓存的重复链接映射
     let duplicateBadge = '';
-    
-    if (isDuplicate) {
-      // 获取所有重复链接的ID
-      const duplicateIds = duplicateLinks.map(l => l.id);
-      
-      // 找到当前链接在重复列表中的位置
+    if (duplicateUrlMap && duplicateUrlMap[link.url] && duplicateUrlMap[link.url].length > 1) {
+      const duplicateIds = duplicateUrlMap[link.url];
       const currentPos = duplicateIds.indexOf(link.id);
       
       // 获取其他重复链接的序号
       const otherIndices = [];
       duplicateIds.forEach((id, pos) => {
         if (pos !== currentPos) {
-          // 找到该ID在allLinks中的位置
           const linkIndex = allLinks.findIndex(l => l.id === id);
           otherIndices.push(linkIndex + 1);
         }
@@ -2218,12 +2220,6 @@ document.addEventListener("DOMContentLoaded", () => {
     updateBatchToolbar();
   }
   
-  // 初始加载
-  loadLinks();
-});
-
-
-
   // 标记重复链接
   function markDuplicates() {
     const urlMap = {};
@@ -2304,3 +2300,7 @@ document.addEventListener("DOMContentLoaded", () => {
   if (filterDuplicateBtn) {
     filterDuplicateBtn.addEventListener('click', filterDuplicates);
   }
+  
+  // 初始加载
+  loadLinks();
+});

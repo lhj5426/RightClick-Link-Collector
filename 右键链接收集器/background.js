@@ -2,101 +2,114 @@
 
 // 默认没有分组，用户自己创建
 const DEFAULT_GROUPS = [];
+let menuCreationInProgress = false; // 防止并发创建菜单
 
 function createContextMenus() {
+  // 如果已经在创建菜单，就跳过这次请求
+  if (menuCreationInProgress) {
+    console.log("菜单创建已在进行中，跳过本次请求");
+    return;
+  }
+  
+  menuCreationInProgress = true;
+  
+  // 先删除所有菜单，等待完成后再创建
   chrome.contextMenus.removeAll(() => {
-    // 获取用户的分组设置
-    chrome.storage.local.get({ groups: DEFAULT_GROUPS }, (res) => {
-      const groups = Array.isArray(res.groups) ? res.groups : DEFAULT_GROUPS;
-      
-      console.log("创建右键菜单，当前分组数量:", groups.length);
-      
-      if (groups.length === 0) {
-        // 没有分组时，直接保存到全局
-        chrome.contextMenus.create({
-          id: "saveLink_global",
-          title: "05.保存链接到收集器",
-          contexts: ["link"]
-        });
+    setTimeout(() => {
+      chrome.storage.local.get({ groups: DEFAULT_GROUPS }, (res) => {
+        const groups = Array.isArray(res.groups) ? res.groups : DEFAULT_GROUPS;
         
-        chrome.contextMenus.create({
-          id: "savePage_global",
-          title: "05.保存页面到收集器",
-          contexts: ["page"]
-        });
+        console.log("创建右键菜单，当前分组数量:", groups.length);
         
-        console.log("创建了简单菜单（无分组）");
-      } else {
-        // 有分组时，显示子菜单
-        chrome.contextMenus.create({
-          id: "saveLinkParent",
-          title: "05.保存链接到收集器",
-          contexts: ["link"]
-        });
-        
-        // 全局选项（不属于任何分组）
-        chrome.contextMenus.create({
-          id: "saveLink_global",
-          parentId: "saveLinkParent",
-          title: "全局（无分组）",
-          contexts: ["link"]
-        });
-        
-        // 为每个分组创建子菜单项
-        groups.forEach((group, index) => {
-          console.log(`创建分组菜单 ${index + 1}:`, group.name);
+        if (groups.length === 0) {
+          // 没有分组时，直接保存到全局
           chrome.contextMenus.create({
-            id: `saveLink_${group.id}`,
-            parentId: "saveLinkParent",
-            title: group.name,
+            id: "saveLink_global",
+            title: "05.保存链接到收集器",
             contexts: ["link"]
           });
-        });
-        
-        // 新建分组选项
-        chrome.contextMenus.create({
-          id: "saveLink_newGroup",
-          parentId: "saveLinkParent",
-          title: "+ 新建分组...",
-          contexts: ["link"]
-        });
-        
-        // 保存页面的父菜单
-        chrome.contextMenus.create({
-          id: "savePageParent",
-          title: "05.保存页面到收集器",
-          contexts: ["page"]
-        });
-        
-        // 全局选项
-        chrome.contextMenus.create({
-          id: "savePage_global",
-          parentId: "savePageParent",
-          title: "全局（无分组）",
-          contexts: ["page"]
-        });
-        
-        // 为每个分组创建子菜单项
-        groups.forEach(group => {
+          
           chrome.contextMenus.create({
-            id: `savePage_${group.id}`,
-            parentId: "savePageParent",
-            title: group.name,
+            id: "savePage_global",
+            title: "05.保存页面到收集器",
             contexts: ["page"]
           });
-        });
+          
+          console.log("创建了简单菜单（无分组）");
+        } else {
+          // 有分组时，显示子菜单
+          chrome.contextMenus.create({
+            id: "saveLinkParent",
+            title: "05.保存链接到收集器",
+            contexts: ["link"]
+          });
+          
+          // 全局选项（不属于任何分组）
+          chrome.contextMenus.create({
+            id: "saveLink_global",
+            parentId: "saveLinkParent",
+            title: "全局（无分组）",
+            contexts: ["link"]
+          });
+          
+          // 为每个分组创建子菜单项
+          groups.forEach((group, index) => {
+            console.log(`创建分组菜单 ${index + 1}:`, group.name);
+            chrome.contextMenus.create({
+              id: `saveLink_${group.id}`,
+              parentId: "saveLinkParent",
+              title: group.name,
+              contexts: ["link"]
+            });
+          });
+          
+          // 新建分组选项
+          chrome.contextMenus.create({
+            id: "saveLink_newGroup",
+            parentId: "saveLinkParent",
+            title: "+ 新建分组...",
+            contexts: ["link"]
+          });
+          
+          // 保存页面的父菜单
+          chrome.contextMenus.create({
+            id: "savePageParent",
+            title: "05.保存页面到收集器",
+            contexts: ["page"]
+          });
+          
+          // 全局选项
+          chrome.contextMenus.create({
+            id: "savePage_global",
+            parentId: "savePageParent",
+            title: "全局（无分组）",
+            contexts: ["page"]
+          });
+          
+          // 为每个分组创建子菜单项
+          groups.forEach(group => {
+            chrome.contextMenus.create({
+              id: `savePage_${group.id}`,
+              parentId: "savePageParent",
+              title: group.name,
+              contexts: ["page"]
+            });
+          });
+          
+          // 新建分组选项
+          chrome.contextMenus.create({
+            id: "savePage_newGroup",
+            parentId: "savePageParent",
+            title: "+ 新建分组...",
+            contexts: ["page"]
+          });
+          
+          console.log(`创建了带分组的菜单（${groups.length} 个分组）`);
+        }
         
-        // 新建分组选项
-        chrome.contextMenus.create({
-          id: "savePage_newGroup",
-          parentId: "savePageParent",
-          title: "+ 新建分组...",
-          contexts: ["page"]
-        });
-        
-        console.log(`创建了带分组的菜单（${groups.length} 个分组）`);
-      }
-    });
+        menuCreationInProgress = false;
+      });
+    }, 100);
   });
 }
 
