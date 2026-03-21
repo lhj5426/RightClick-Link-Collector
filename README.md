@@ -35,6 +35,14 @@ https://github.com/user-attachments/assets/9af602fc-fb5c-4033-a127-fef0699e4fa5
 https://github.com/user-attachments/assets/a4527844-5022-4e1e-a739-fe66f253732a
 
 
+原来保存都是静默的  不太直观
+
+增加一个 保存提示信息条
+
+不需要那么静默 
+
+https://github.com/user-attachments/assets/ff67a364-e977-499d-b552-86ff0164d942
+
 
 
 
