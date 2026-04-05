@@ -4,6 +4,12 @@
 
 链接保存稍后阅读 网址收藏扩展 
 
+
+
+https://github.com/user-attachments/assets/cb5e651c-1e89-43ac-991f-7b5bd0faf0d0
+
+
+
 与ONETAB等扩展的区别在于不打开网页可以保存链接
 
 本扩展的核心功能 保存时会自动对页面截图快照
