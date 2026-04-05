@@ -20,6 +20,13 @@
         <button id="clearAllBtn" class="btn btn-danger">🗑️ 清空全部</button>
       </div>
       <div class="header-right">
+        <label class="setting-toggle" title="保存链接后自动关闭该网页标签页">
+          <span class="setting-toggle-text">保存后关闭标签</span>
+          <div class="toggle-switch">
+            <input type="checkbox" id="autoCloseTabBtn" />
+            <span class="slider round"></span>
+          </div>
+        </label>
         <button id="themeBtn" class="theme-btn" title="切换主题">🌙</button>
       </div>
     </header>
@@ -29,7 +36,7 @@
       <button class="view-tab active" data-view="all">全部</button>
       <button class="view-tab" data-view="byGroup">按分组</button>
       <button class="view-tab" data-view="byDomain">按域名分组</button>
-      <button class="view-tab" data-view="byNote">按备注分组</button>
+      <button class="view-tab" data-view="byNote">按标签分组</button>
       <button class="view-tab" data-view="unvisited">未访问</button>
       <button id="toggleGroupsBtn" class="view-tab view-tab-action">📂 折叠分组</button>
       <button id="byDateBtn" class="view-tab view-tab-date">📅 按日期分组</button>
@@ -38,8 +45,12 @@
     
     <!-- 工具栏 -->
     <div class="toolbar">
-      <div class="search-box">
-        <input type="text" id="searchInput" placeholder="搜索链接..." />
+      <div class="search-box" style="position: relative; display: flex; align-items: center; flex: 1;">
+        <input type="text" id="searchInput" placeholder="搜索链接..." style="padding-right: 110px; width: 100%;" />
+        <div style="position: absolute; right: 15px; display: flex; align-items: center; gap: 10px;">
+          <span id="clearSearchBtn" title="清空搜索" style="cursor: pointer; color: var(--text-muted); font-size: 18px; user-select: none; display: none; margin-top: -2px;">✕</span>
+          <span id="searchResultCount" style="font-size: 13px; font-weight: bold; color: var(--accent); display: none; white-space: nowrap;"></span>
+        </div>
       </div>
       <div class="toolbar-actions">
         <button id="sortBtn" class="btn btn-secondary">⏱️ 按时间排序</button>
@@ -61,8 +72,14 @@
       </div>
     </div>
     
+    <!-- 搜索导航栏 -->
+    <div id="searchNavToolbar" class="search-nav-toolbar" style="display: none;">
+      <!-- keywords tags injected here -->
+    </div>
+    
     <!-- 批量操作工具栏 -->
     <div id="batchToolbar" class="batch-toolbar" style="display: none;">
+      <input type="checkbox" id="batchSelectAllCheckbox" class="batch-select-all-checkbox" title="全选/取消全选">
       <span id="batchCount" style="margin-right: 20px; font-weight: 500;">已选择 0 个</span>
       <button id="batchMoveBtn" class="btn btn-success">📁 批量移动</button>
       <button id="batchDeleteBtn" class="btn btn-danger">🗑️ 批量删除</button>

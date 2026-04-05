@@ -5,10 +5,11 @@
 let allLinks = [];
 let allGroups = [];
 let themeMode = "auto";
-let currentView = "all";
-let groupsCollapsed = false;
+let currentView = localStorage.getItem('currentView') || "all";
+let groupsCollapsed = localStorage.getItem('groupsCollapsed') === 'true';
 let sortOrder = "oldest"; // "oldest" 旧→新（默认），"newest" 新→旧
 let unvisitedMode = "aggregate"; // "aggregate" 聚合模式, "inGroup" 组内模式
+let currentSearchKeywords = []; // 当前搜索的多关键字
 const STORAGE_KEY = 'tabSaverVisitedLinks';
 const DEFAULT_GROUPS = [];
 
@@ -32,6 +33,7 @@ document.addEventListener("DOMContentLoaded", () => {
   const newGroupName = document.getElementById("newGroupName");
   const newGroupColor = document.getElementById("newGroupColor");
   const addGroupBtn = document.getElementById("addGroupBtn");
+  const autoCloseTabBtn = document.getElementById("autoCloseTabBtn");
   
   // 工具函数
   function escapeHtml(s) {
@@ -39,6 +41,39 @@ document.addEventListener("DOMContentLoaded", () => {
     const div = document.createElement('div');
     div.textContent = s;
     return div.innerHTML;
+  }
+  
+  // 搜索关键字高亮
+  function highlightText(text, keywords) {
+    if (!text) return "";
+    if (!keywords || keywords.length === 0) return escapeHtml(String(text));
+    
+    // 过滤掉空关键词并逃逸正则字符
+    const escapedKeywords = keywords
+      .filter(k => k.trim().length > 0)
+      .map(kw => kw.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
+      
+    if (escapedKeywords.length === 0) return escapeHtml(String(text));
+    
+    const regex = new RegExp(`(${escapedKeywords.join('|')})`, 'gi');
+    const parts = String(text).split(regex);
+    let result = '';
+    
+    const lowerKeywords = keywords.map(k => k.toLowerCase());
+    
+    parts.forEach((part, i) => {
+      if (i % 2 === 0) { // 非匹配部分
+        result += escapeHtml(part);
+      } else { // 匹配部分（通过正则的 group 捕获）
+        const lowerPart = part.toLowerCase();
+        // 找出它匹配的是第几个关键词，用来分配颜色
+        const kwIndex = lowerKeywords.findIndex(k => lowerPart === k);
+        const colorClass = `hl-${Math.max(0, kwIndex) % 7}`;
+        result += `<mark class="search-highlight ${colorClass}">${escapeHtml(part)}</mark>`;
+      }
+    });
+    
+    return result;
   }
   
   // 获取域名
@@ -138,13 +173,66 @@ document.addEventListener("DOMContentLoaded", () => {
   
   // 加载链接和分组
   function loadLinks() {
-    chrome.storage.local.get({ links: [], groups: DEFAULT_GROUPS }, (res) => {
+    chrome.storage.local.get({ links: [], groups: DEFAULT_GROUPS, autoCloseTab: false }, (res) => {
       allLinks = Array.isArray(res.links) ? res.links : [];
+      
+      // 迁移旧版 note 到 tags
+      let needsSave = false;
+      allLinks.forEach(link => {
+        if (link.note !== undefined && !link.tags) {
+          if (link.note.trim()) {
+            link.tags = [{ text: link.note.trim(), color: '#FF9800' }];
+          } else {
+            link.tags = [];
+          }
+          delete link.note;
+          needsSave = true;
+        } else if (!link.tags) {
+          link.tags = [];
+        }
+      });
+      if (needsSave) {
+        chrome.storage.local.set({ links: allLinks });
+      }
+      
       allGroups = Array.isArray(res.groups) ? res.groups : DEFAULT_GROUPS;
+      if (autoCloseTabBtn) {
+        autoCloseTabBtn.checked = res.autoCloseTab;
+      }
       renderLinks();
+      applyCollapsedState();
       updateCount();
       updateGroupCount();
+      // 在数据加载完成后，检查是否有由背景脚本传递的分组操作请求
+      checkUrlParams();
     });
+  }
+
+  // 检查URL参数，处理特定动作（如右键菜单“新建分组”）
+  function checkUrlParams() {
+    const urlParams = new URLSearchParams(window.location.search);
+    if (urlParams.get('action') === 'newGroup') {
+      groupModal.classList.add("show");
+      renderGroupList();
+      setTimeout(() => {
+        newGroupName.focus();
+      }, 200); // 稍微延迟以确保DOM完全渲染后的聚焦稳定
+      
+      // 清理 URL 参数，防止刷新页面时重复触发弹窗
+      window.history.replaceState({}, document.title, window.location.pathname);
+    }
+  }
+  
+  // 应用折叠状态到所有分组
+  function applyCollapsedState() {
+    if (groupsCollapsed) {
+      const allGroupHeaders = document.querySelectorAll(".group-header");
+      const allGroupContents = document.querySelectorAll(".group-content");
+      allGroupHeaders.forEach(header => header.classList.add("collapsed"));
+      allGroupContents.forEach(content => content.classList.add("collapsed"));
+    }
+    // 更新按钮文字
+    toggleGroupsBtn.textContent = groupsCollapsed ? "📂 展开分组" : "📂 折叠分组";
   }
   
   // 更新计数
@@ -167,12 +255,20 @@ document.addEventListener("DOMContentLoaded", () => {
     const visited = getVisitedLinks();
     
     let visible = allLinks;
+    const tokens = query.match(/"[^"]+"|\S+/g) || [];
+    currentSearchKeywords = tokens.map(k => k.replace(/^"|"$/g, '').trim()).filter(k => k.length > 0);
     
-    if (query) {
+    if (currentSearchKeywords.length > 0) {
       visible = allLinks.filter(link => 
-        (link.url || "").toLowerCase().includes(query) ||
-        (link.title || "").toLowerCase().includes(query) ||
-        (link.note || "").toLowerCase().includes(query)
+        currentSearchKeywords.some(kw => {
+          const groupName = link.groupId ? (allGroups.find(g => g.id === link.groupId)?.name || "") : "无分组";
+          return (link.url || "").toLowerCase().includes(kw) ||
+          (link.title || "").toLowerCase().includes(kw) ||
+          (link.tags ? link.tags.map(t=>t.text).join(' ') : "").toLowerCase().includes(kw) ||
+          (link.desc || "").toLowerCase().includes(kw) ||
+          (link.page || "").toLowerCase().includes(kw) ||
+          groupName.toLowerCase().includes(kw);
+        })
       );
     }
     
@@ -192,6 +288,81 @@ document.addEventListener("DOMContentLoaded", () => {
       duplicateUrlMap[link.url].push(link.id);
     });
     
+    // 更新搜索结果计数显示与清空按钮
+    const countBadge = document.getElementById('searchResultCount');
+    const clearBtn = document.getElementById('clearSearchBtn');
+    
+    if (clearBtn) {
+      clearBtn.style.display = currentSearchKeywords.length > 0 ? 'inline-block' : 'none';
+    }
+    
+    if (countBadge) {
+      if (currentSearchKeywords.length > 0) {
+        countBadge.textContent = `找到 ${visible.length} 个`;
+        countBadge.style.display = 'inline';
+      } else {
+        countBadge.style.display = 'none';
+      }
+    }
+    
+    // 更新多关键字跳转导航栏
+    const navToolbar = document.getElementById('searchNavToolbar');
+    if (navToolbar) {
+      if (currentSearchKeywords.length > 1) { // 甚至只有1个也可以显示，但多数多词时更有用。为了满足需求，> 0 就显示
+        navToolbar.innerHTML = '<span class="search-nav-toolbar-label">快速跳转</span>';
+        navToolbar.style.display = 'flex';
+        
+        const lowerKeywords = currentSearchKeywords.map(k => k.toLowerCase());
+        lowerKeywords.forEach((kw, kwIndex) => {
+          // 找出当前搜索结果中，包含这个子关键字的 linkId
+          const matchingIds = visible.filter(link => {
+            const groupName = link.groupId ? (allGroups.find(g => g.id === link.groupId)?.name || "") : "无分组";
+            return (link.url || "").toLowerCase().includes(kw) ||
+            (link.title || "").toLowerCase().includes(kw) ||
+            (link.tags ? link.tags.map(t=>t.text).join(' ') : "").toLowerCase().includes(kw) ||
+            (link.desc || "").toLowerCase().includes(kw) ||
+            (link.page || "").toLowerCase().includes(kw) ||
+            groupName.toLowerCase().includes(kw);
+          }).map(l => l.id);
+          
+          if (matchingIds.length > 0) {
+            const btn = document.createElement('button');
+            // 原样显示输入的关键字
+            const displayKw = currentSearchKeywords[kwIndex];
+            btn.className = `nav-tag hl-${kwIndex % 7}`;
+            btn.innerHTML = `${escapeHtml(displayKw)} <span class="nav-count" style="opacity:0.7; font-size:11px;">(0/${matchingIds.length})</span>`;
+            
+            let currentJumpIndex = -1;
+            btn.onclick = () => {
+              currentJumpIndex = (currentJumpIndex + 1) % matchingIds.length;
+              const targetId = matchingIds[currentJumpIndex];
+              
+              const countSpan = btn.querySelector('.nav-count');
+              if (countSpan) countSpan.textContent = `(${currentJumpIndex + 1}/${matchingIds.length})`;
+              
+              const card = document.querySelector(`.link-card[data-link-id="${targetId}"]`);
+              if (card) {
+                card.scrollIntoView({ behavior: "smooth", block: "center" });
+                // 添加一个一闪而过的选中特效
+                card.style.transition = "transform 0.2s, box-shadow 0.2s";
+                card.style.transform = "scale(1.02)";
+                card.style.boxShadow = "0 0 0 3px var(--accent)";
+                setTimeout(() => {
+                  card.style.transform = "";
+                  card.style.boxShadow = "";
+                }, 400);
+              }
+            };
+            navToolbar.appendChild(btn);
+          }
+        });
+      } else {
+        navToolbar.style.display = 'none';
+        navToolbar.innerHTML = '';
+      }
+    }
+
+    
     if (visible.length === 0) {
       linksList.innerHTML = "";
       emptyState.classList.remove("hidden");
@@ -210,7 +381,7 @@ document.addEventListener("DOMContentLoaded", () => {
     } else if (currentView === "byDate") {
       renderByDateView(visible, visited);
     } else if (currentView === "byNote") {
-      renderByNoteView(visible, visited);
+      renderByTagsView(visible, visited);
     } else if (currentView === "unvisited") {
       renderUnvisitedView(visible, visited);
     }
@@ -491,14 +662,74 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   }
   
-  // 按备注分组渲染
-  function renderByNoteView(links, visited) {
-    // 有备注的链接
-    const withNote = links.filter(link => link.note && link.note.trim());
-    // 无备注的链接
-    const withoutNote = links.filter(link => !link.note || !link.note.trim());
+  // 按标签分组渲染
+  function renderByTagsView(links, visited) {
+    // 收集所有出现过的标签
+    const tagMap = new Map();
+    const withoutTags = [];
     
-    if (withNote.length > 0) {
+    links.forEach(link => {
+      if (!link.tags || link.tags.length === 0) {
+        withoutTags.push(link);
+      } else {
+        link.tags.forEach(tag => {
+          if (!tagMap.has(tag.text)) {
+            tagMap.set(tag.text, { color: tag.color, textColor: tag.textColor || '#ffffff', links: [] });
+          }
+          tagMap.get(tag.text).links.push(link);
+        });
+      }
+    });
+
+    const sortedTags = Array.from(tagMap.keys()).sort();
+    
+    if (sortedTags.length > 0) {
+      sortedTags.forEach(tagText => {
+        const tagInfo = tagMap.get(tagText);
+        const groupLinks = tagInfo.links;
+        
+        const section = document.createElement("div");
+        section.className = "group-section";
+        
+        const header = document.createElement("div");
+        header.className = "group-header";
+        header.innerHTML = `
+          <div class="group-header-left">
+            <input type="checkbox" class="group-select-all" title="全选/取消全选">
+            <span style="display:inline-flex; align-items:center;">🏷️ <span class="link-tag" style="background:${tagInfo.color}; color:${tagInfo.textColor}; margin-left:8px;">${escapeHtml(tagText)}</span> (${groupLinks.length})</span>
+          </div>
+          <span class="group-toggle">▾</span>
+        `;
+        header.onclick = (e) => {
+          if (e.target.classList.contains('group-select-all')) return;
+          header.classList.toggle("collapsed");
+          content.classList.toggle("collapsed");
+        };
+        
+        const content = document.createElement("div");
+        content.className = "group-content";
+        
+        // 组内排序
+        const sortedGroupLinks = groupLinks.sort((a, b) => {
+          const timeA = new Date(a.date || 0).getTime();
+          const timeB = new Date(b.date || 0).getTime();
+          return sortOrder === "oldest" ? timeA - timeB : timeB - timeA;
+        });
+
+        sortedGroupLinks.forEach((link, index) => {
+          const card = createLinkCard(link, index + 1, visited);
+          content.appendChild(card);
+        });
+        
+        section.appendChild(header);
+        section.appendChild(content);
+        linksList.appendChild(section);
+        
+        setupGroupSelectAll(header, content);
+      });
+    }
+    
+    if (withoutTags.length > 0) {
       const section = document.createElement("div");
       section.className = "group-section";
       
@@ -507,7 +738,7 @@ document.addEventListener("DOMContentLoaded", () => {
       header.innerHTML = `
         <div class="group-header-left">
           <input type="checkbox" class="group-select-all" title="全选/取消全选">
-          <span>📝 有备注 (${withNote.length})</span>
+          <span>⚪ 无标签 (${withoutTags.length})</span>
         </div>
         <span class="group-toggle">▾</span>
       `;
@@ -520,14 +751,14 @@ document.addEventListener("DOMContentLoaded", () => {
       const content = document.createElement("div");
       content.className = "group-content";
       
-      // 组内按时间排序
-      const sortedLinks = withNote.sort((a, b) => {
+      // 组内排序
+      const sortedWithoutLinks = withoutTags.sort((a, b) => {
         const timeA = new Date(a.date || 0).getTime();
         const timeB = new Date(b.date || 0).getTime();
         return sortOrder === "oldest" ? timeA - timeB : timeB - timeA;
       });
-      
-      sortedLinks.forEach((link, index) => {
+
+      sortedWithoutLinks.forEach((link, index) => {
         const card = createLinkCard(link, index + 1, visited);
         content.appendChild(card);
       });
@@ -536,50 +767,11 @@ document.addEventListener("DOMContentLoaded", () => {
       section.appendChild(content);
       linksList.appendChild(section);
       
-      // 设置全选逻辑
       setupGroupSelectAll(header, content);
     }
     
-    if (withoutNote.length > 0) {
-      const section = document.createElement("div");
-      section.className = "group-section";
-      
-      const header = document.createElement("div");
-      header.className = "group-header";
-      header.innerHTML = `
-        <div class="group-header-left">
-          <input type="checkbox" class="group-select-all" title="全选/取消全选">
-          <span>📭 无备注 (${withoutNote.length})</span>
-        </div>
-        <span class="group-toggle">▾</span>
-      `;
-      header.onclick = (e) => {
-        if (e.target.classList.contains('group-select-all')) return;
-        header.classList.toggle("collapsed");
-        content.classList.toggle("collapsed");
-      };
-      
-      const content = document.createElement("div");
-      content.className = "group-content";
-      
-      // 组内按时间排序
-      const sortedLinks = withoutNote.sort((a, b) => {
-        const timeA = new Date(a.date || 0).getTime();
-        const timeB = new Date(b.date || 0).getTime();
-        return sortOrder === "oldest" ? timeA - timeB : timeB - timeA;
-      });
-      
-      sortedLinks.forEach((link, index) => {
-        const card = createLinkCard(link, index + 1, visited);
-        content.appendChild(card);
-      });
-      
-      section.appendChild(header);
-      section.appendChild(content);
-      linksList.appendChild(section);
-      
-      // 设置全选逻辑
-      setupGroupSelectAll(header, content);
+    if (sortedTags.length === 0 && withoutTags.length === 0) {
+      linksList.innerHTML = '<div class="empty-state">没有链接</div>';
     }
   }
   
@@ -604,15 +796,20 @@ document.addEventListener("DOMContentLoaded", () => {
     // 获取分组信息
     const groupId = link.groupId;
     let groupBadge = '';
+    let groupColor = '#9E9E9E'; // 默认无分组颜色
     
     if (groupId) {
       const group = allGroups.find(g => g.id === groupId);
       if (group) {
-        groupBadge = `<span class="group-badge" style="background: ${group.color}">${group.name}</span>`;
+        groupBadge = `<span class="group-badge" style="background: ${group.color}; cursor: pointer;" data-group-name="${escapeHtml(group.name)}" title="点击过滤此分组">${group.name}</span>`;
+        groupColor = group.color;
       }
     } else {
-      groupBadge = `<span class="group-badge" style="background: #9E9E9E">无分组</span>`;
+      groupBadge = `<span class="group-badge" style="background: #9E9E9E; cursor: pointer;" data-group-name="无分组" title="点击过滤无分组">无分组</span>`;
     }
+    
+    // 设置分组颜色边框
+    card.style.borderLeftColor = groupColor;
     
     // 检查是否是重复链接 - 优化：使用缓存的重复链接映射
     let duplicateBadge = '';
@@ -630,31 +827,35 @@ document.addEventListener("DOMContentLoaded", () => {
       });
       
       const otherStr = otherIndices.sort((a, b) => a - b).join('、');
-      duplicateBadge = `<span class="duplicate-badge">🔗 与${otherStr}重复</span>`;
+      duplicateBadge = `<span class="duplicate-badge" data-duplicate-url="${escapeHtml(link.url)}" title="点击过滤显示所有重复条目">🔗 与${otherStr}重复</span>`;
     }
     
-    // 备注显示
-    const noteDisplay = link.note 
-      ? `<div class="link-note">📝 备注: ${escapeHtml(link.note)}</div>`
-      : '';
+    // 标签显示
+    let tagsDisplay = '';
+    if (link.tags && link.tags.length > 0) {
+      const tagsHrml = link.tags.map(tag => 
+        `<span class="link-tag" style="background: ${tag.color}; color: ${tag.textColor || '#ffffff'};" data-tag-text="${escapeHtml(tag.text)}" title="点击过滤带有此标签的条目">${highlightText(tag.text, currentSearchKeywords)}</span>`
+      ).join('');
+      tagsDisplay = `<div class="link-tags">${tagsHrml}</div>`;
+    }
       
     // 描述显示
     const descDisplay = link.desc
-      ? `<div class="link-description" title="${escapeHtml(link.desc)}">${escapeHtml(link.desc)}</div>`
+      ? `<div class="link-description" title="${escapeHtml(link.desc)}">${highlightText(link.desc, currentSearchKeywords)}</div>`
       : '';
     
     card.innerHTML = `
       <input type="checkbox" class="link-checkbox" data-id="${link.id}" style="margin-right: 10px; cursor: pointer;">
       <div class="link-index">${index}</div>
       <div class="link-content">
-        <a href="${escapeHtml(link.url)}" class="link-url" target="_blank" data-url="${escapeHtml(link.url)}">${escapeHtml(link.url)}</a>
-        <div class="link-source">来源: ${escapeHtml(link.title || link.page || '未知')} ${groupBadge} ${duplicateBadge}</div>
+        <a href="${escapeHtml(link.url)}" class="link-url" target="_blank" data-url="${escapeHtml(link.url)}">${highlightText(link.url, currentSearchKeywords)}</a>
+        <div class="link-source">来源: ${highlightText(link.title || link.page || '未知', currentSearchKeywords)} ${groupBadge} ${duplicateBadge}</div>
         <div class="link-date">保存时间: ${escapeHtml(link.date || '')}</div>
         ${descDisplay}
-        ${noteDisplay}
+        ${tagsDisplay}
         ${visitInfo}
         <div class="link-actions">
-          <button class="link-btn link-btn-note" data-id="${link.id}">📝 备注</button>
+          <button class="link-btn link-btn-note" data-id="${link.id}">🏷️ 标签</button>
           <button class="link-btn link-btn-move" data-id="${link.id}">📁 移动</button>
           <button class="link-btn link-btn-copy" data-url="${escapeHtml(link.url)}">📋 复制</button>
           <button class="link-btn link-btn-delete" data-id="${link.id}">🗑️ 删除</button>
@@ -709,6 +910,43 @@ document.addEventListener("DOMContentLoaded", () => {
       }
     });
     
+    // 重复标签点击事件 - 过滤显示所有重复条目
+    const dupBadge = card.querySelector('.duplicate-badge');
+    if (dupBadge) {
+      dupBadge.addEventListener('click', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        const dupUrl = dupBadge.dataset.duplicateUrl;
+        if (dupUrl) {
+          filterByKeyword(dupUrl);
+        }
+      });
+    }
+    // 自定义标签胶囊点击事件 - 过滤显示该标签
+    card.querySelectorAll('.link-tag').forEach(tagEl => {
+      tagEl.addEventListener('click', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        const tagText = e.currentTarget.dataset.tagText;
+        if (tagText) {
+          filterByKeyword(tagText);
+        }
+      });
+    });
+    
+    // 分组胶囊点击事件 - 过滤显示该分组
+    card.querySelectorAll('.group-badge[data-group-name]').forEach(badgeEl => {
+      badgeEl.addEventListener('click', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        const groupName = e.currentTarget.dataset.groupName;
+        // 如果是"无分组"，也可以作为关键字去搜索，看是否匹配需求（如果搜索框逻辑能匹配到就好）
+        if (groupName) {
+          filterByKeyword(groupName);
+        }
+      });
+    });
+    
     // 点击链接记录访问(左键和中键都记录)
     const linkEl = card.querySelector(".link-url");
     linkEl.addEventListener("mousedown", (e) => {
@@ -727,7 +965,7 @@ document.addEventListener("DOMContentLoaded", () => {
     // 备注按钮
     card.querySelector(".link-btn-note").addEventListener("click", (e) => {
       const id = parseInt(e.currentTarget.dataset.id);
-      showNoteDialog(id);
+      showTagDialog(id);
     });
     
     // 移动按钮
@@ -756,10 +994,13 @@ document.addEventListener("DOMContentLoaded", () => {
     return card;
   }
   
-  // 显示备注对话框
-  function showNoteDialog(linkId) {
+  // 显示标签对话框 (原备注对话框)
+  function showTagDialog(linkId) {
     const link = allLinks.find(l => l.id === linkId);
     if (!link) return;
+    
+    // 初始化本地副本以进行编辑
+    let currentTags = Array.isArray(link.tags) ? [...link.tags] : [];
     
     const dialog = document.createElement('div');
     dialog.className = 'modal show';
@@ -767,18 +1008,35 @@ document.addEventListener("DOMContentLoaded", () => {
     dialog.innerHTML = `
       <div class="modal-content" style="max-width: 500px; z-index: 10001;">
         <div class="modal-header">
-          <h2>编辑备注</h2>
-          <button class="modal-close" id="noteDialogClose">✕</button>
+          <h2>编辑标签</h2>
+          <button class="modal-close" id="tagDialogClose">✕</button>
         </div>
         <div class="modal-body">
           <p style="margin-bottom: 15px; color: var(--text-muted); font-size: 14px; word-break: break-all;">
             ${escapeHtml(link.url.substring(0, 80))}${link.url.length > 80 ? '...' : ''}
           </p>
-          <textarea id="noteInput" style="width: 100%; min-height: 100px; padding: 10px; border: 2px solid var(--border); border-radius: 6px; font-size: 14px; font-family: inherit; resize: vertical;" placeholder="输入备注...">${escapeHtml(link.note || '')}</textarea>
-          <div style="display: flex; gap: 10px; justify-content: flex-end; margin-top: 15px;">
-            <button class="btn btn-secondary" id="noteDialogCancel">取消</button>
-            <button class="btn btn-danger" id="clearNote">清除备注</button>
-            <button class="btn btn-primary" id="confirmNote">保存</button>
+          
+          <div id="tagsContainer" style="min-height: 50px; padding: 10px; border: 2px solid var(--border); border-radius: 6px; background: var(--bg); display: flex; flex-wrap: wrap; gap: 4px;">
+            <!-- 标签将会被渲染在这里 -->
+          </div>
+          
+          <div class="tag-input-group" style="align-items: center; gap: 12px; flex-wrap: wrap;">
+            <input type="text" id="tagTextInput" placeholder="输入新标签..." maxlength="30" style="flex: 1; min-width: 150px;">
+            <div style="display:flex; gap:12px; align-items:center; flex-shrink: 0;">
+              <label style="font-size:13px; font-weight:bold; color:var(--text-muted); display:flex; align-items:center; gap:6px; cursor:pointer;" title="自定义胶囊背景色">
+                背景<input type="color" id="tagColorInput" value="#0B74FF" style="width:40px;height:40px;padding:2px;cursor:pointer;border:2px solid var(--border);border-radius:6px;">
+              </label>
+              <label style="font-size:13px; font-weight:bold; color:var(--text-muted); display:flex; align-items:center; gap:6px; cursor:pointer;" title="自定义胶囊内文字的颜色">
+                文字<input type="color" id="tagTextColorInput" value="#ffffff" style="width:40px;height:40px;padding:2px;cursor:pointer;border:2px solid var(--border);border-radius:6px;">
+              </label>
+            </div>
+            <button class="btn btn-primary" id="addTagBtn" style="padding: 8px 20px; white-space: nowrap; height: 40px;">添加</button>
+          </div>
+          
+          <div style="display: flex; gap: 10px; justify-content: flex-end; margin-top: 25px;">
+            <button class="btn btn-secondary" id="tagDialogCancel">取消</button>
+            <button class="btn btn-danger" id="clearTags">清空全标签</button>
+            <button class="btn btn-success" id="confirmTags">保存</button>
           </div>
         </div>
       </div>
@@ -786,29 +1044,87 @@ document.addEventListener("DOMContentLoaded", () => {
     
     document.body.appendChild(dialog);
     
-    const noteInput = dialog.querySelector('#noteInput');
-    noteInput.focus();
-    noteInput.setSelectionRange(noteInput.value.length, noteInput.value.length);
+    const container = dialog.querySelector('#tagsContainer');
+    const textInput = dialog.querySelector('#tagTextInput');
+    const colorInput = dialog.querySelector('#tagColorInput');
+    const textColorInput = dialog.querySelector('#tagTextColorInput');
     
-    // 关闭按钮
-    dialog.querySelector('#noteDialogClose').addEventListener('click', () => dialog.remove());
-    
-    // 取消按钮
-    dialog.querySelector('#noteDialogCancel').addEventListener('click', () => dialog.remove());
-    
-    // 清除备注按钮
-    dialog.querySelector('#clearNote').addEventListener('click', () => {
-      link.note = '';
-      chrome.storage.local.set({ links: allLinks }, () => {
-        renderLinks();
-        dialog.remove();
+    function renderEditTags() {
+      container.innerHTML = '';
+      if (currentTags.length === 0) {
+        container.innerHTML = '<span style="color:var(--text-muted); font-size:13px; font-style:italic;">暂无标签</span>';
+        return;
+      }
+      currentTags.forEach((tag, index) => {
+        const span = document.createElement('span');
+        span.className = 'edit-tag-capsule';
+        span.style.background = tag.color;
+        const textC = tag.textColor || '#ffffff';
+        span.style.color = textC;
+        span.style.cursor = 'pointer';
+        span.title = '点击重新编辑标签';
+        span.innerHTML = `${escapeHtml(tag.text)} <span class="edit-tag-delete" data-index="${index}">✕</span>`;
+        
+        span.addEventListener('click', (e) => {
+          if (e.target.classList.contains('edit-tag-delete')) return;
+          textInput.value = tag.text;
+          colorInput.value = tag.color;
+          textColorInput.value = textC;
+          textInput.focus();
+        });
+        
+        container.appendChild(span);
       });
+      
+      // 绑定删除事件
+      container.querySelectorAll('.edit-tag-delete').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          const idx = parseInt(e.currentTarget.dataset.index);
+          currentTags.splice(idx, 1);
+          renderEditTags();
+        });
+      });
+    }
+    
+    renderEditTags();
+    textInput.focus();
+    
+    function addNewTag() {
+      const text = textInput.value.trim();
+      const color = colorInput.value;
+      const textColor = textColorInput.value;
+      if (text) {
+        const existingIndex = currentTags.findIndex(t => t.text === text);
+        if (existingIndex >= 0) {
+          currentTags[existingIndex].color = color;
+          currentTags[existingIndex].textColor = textColor;
+        } else {
+          currentTags.push({ text, color, textColor });
+        }
+        textInput.value = '';
+        renderEditTags();
+      }
+    }
+    
+    dialog.querySelector('#addTagBtn').addEventListener('click', addNewTag);
+    textInput.addEventListener('keypress', (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        addNewTag();
+      }
     });
     
-    // 保存按钮
-    dialog.querySelector('#confirmNote').addEventListener('click', () => {
-      const note = noteInput.value.trim();
-      link.note = note;
+    dialog.querySelector('#tagDialogClose').addEventListener('click', () => dialog.remove());
+    dialog.querySelector('#tagDialogCancel').addEventListener('click', () => dialog.remove());
+    
+    dialog.querySelector('#clearTags').addEventListener('click', () => {
+      currentTags = [];
+      renderEditTags();
+    });
+    
+    dialog.querySelector('#confirmTags').addEventListener('click', () => {
+      link.tags = currentTags;
       chrome.storage.local.set({ links: allLinks }, () => {
         renderLinks();
         dialog.remove();
@@ -916,6 +1232,7 @@ document.addEventListener("DOMContentLoaded", () => {
       }
       
       currentView = tab.dataset.view;
+      localStorage.setItem('currentView', currentView);
       renderLinks();
     });
   });
@@ -927,6 +1244,7 @@ document.addEventListener("DOMContentLoaded", () => {
       viewTabs.forEach(t => t.classList.remove("active"));
       byDateBtn.classList.add("active");
       currentView = "byDate";
+      localStorage.setItem('currentView', currentView);
       renderLinks();
     });
   }
@@ -934,6 +1252,7 @@ document.addEventListener("DOMContentLoaded", () => {
   // 折叠/展开所有分组
   toggleGroupsBtn.addEventListener("click", () => {
     groupsCollapsed = !groupsCollapsed;
+    localStorage.setItem('groupsCollapsed', groupsCollapsed);
     
     const allGroupHeaders = document.querySelectorAll(".group-header");
     const allGroupContents = document.querySelectorAll(".group-content");
@@ -1060,6 +1379,23 @@ document.addEventListener("DOMContentLoaded", () => {
   if (batchMoveBtn) batchMoveBtn.addEventListener("click", showBatchMoveDialog);
   if (batchDeleteBtn) batchDeleteBtn.addEventListener("click", batchDeleteLinks);
   if (batchCancelBtn) batchCancelBtn.addEventListener("click", cancelBatchSelection);
+  
+  // 批量工具栏全选复选框
+  const batchSelectAllCheckbox = document.getElementById('batchSelectAllCheckbox');
+  if (batchSelectAllCheckbox) {
+    batchSelectAllCheckbox.addEventListener('change', () => {
+      const isChecked = batchSelectAllCheckbox.checked;
+      document.querySelectorAll('.link-checkbox').forEach(cb => {
+        cb.checked = isChecked;
+      });
+      // 同时更新所有分组的全选复选框状态
+      document.querySelectorAll('.group-select-all').forEach(cb => {
+        cb.checked = isChecked;
+        cb.indeterminate = false;
+      });
+      updateBatchToolbar();
+    });
+  }
   
   // 排序按钮
   const sortBtn = document.getElementById("sortBtn");
@@ -1373,7 +1709,12 @@ document.addEventListener("DOMContentLoaded", () => {
     // 生成单个链接条目
     function generateTabEntry(link, index) {
       const saveTime = link.date ? `<div class="tab-save-time">保存时间: ${escapeHtml(link.date)}</div>` : '';
-      const noteDisplay = link.note ? `<div class="tab-note">📝 备注: ${escapeHtml(link.note)}</div>` : '';
+      
+      let tagsDisplay = '';
+      if (link.tags && link.tags.length > 0) {
+        const spanHTML = link.tags.map(t => `<span style="display:inline-block; padding:2px 8px; border-radius:12px; font-size:12px; font-weight:500; color:#fff; text-shadow:0 1px 1px rgba(0,0,0,0.3); background:${t.color}; margin-right:6px;">${escapeHtml(t.text)}</span>`).join('');
+        tagsDisplay = `<div class="tab-tags" style="margin-top:6px;">${spanHTML}</div>`;
+      }
       
       // 快照显示
       let snapshotHTML = '';
@@ -1397,7 +1738,7 @@ document.addEventListener("DOMContentLoaded", () => {
       }
 
       return `
-        <div class="tab-entry" data-url="${escapeHtml(link.url)}" data-title="${escapeHtml(link.title || link.page || '')}" data-group-id="${link.groupId || ''}" data-note="${escapeHtml(link.note || '')}">
+        <div class="tab-entry" data-url="${escapeHtml(link.url)}" data-title="${escapeHtml(link.title || link.page || '')}" data-group-id="${link.groupId || ''}" data-tags="${escapeHtml(link.tags ? link.tags.map(t=>t.text).join(' ') : '')}">
           <span class="tab-index">${index}</span>
           <input type="checkbox" class="tab-checkbox" onclick="window.updateSelectionState()">
           <div class="tab-content">
@@ -1407,7 +1748,7 @@ document.addEventListener("DOMContentLoaded", () => {
               <div class="tab-url collapsed">来源: ${escapeHtml(link.title || link.page || '未知')}</div>
             </div>
             ${saveTime}
-            ${noteDisplay}
+            ${tagsDisplay}
             <div class="visit-info"><span class="visit-time"></span><span class="visit-count"></span></div>
             <div class="tab-markers">
               <label class="marker-checkbox marker-downloaded">
@@ -1606,8 +1947,12 @@ document.addEventListener("DOMContentLoaded", () => {
           <button class="button" style="background:#9C27B0" onclick="window.clearMarkers()">清除下载标记</button>
           <button class="button" style="background:#F44336" onclick="window.clearVisitHistory()">清除访问历史</button>
         </div>
-        <div class="search-container">
-          <input type="text" class="search-input" placeholder="搜索..." oninput="window.searchTabs(this.value)">
+        <div class="search-container" style="position: relative; display: flex; align-items: center;">
+          <input type="text" class="search-input" placeholder="搜索..." oninput="window.searchTabs(this.value)" style="padding-right: 110px; width: 100%;">
+          <div style="position: absolute; right: 15px; display: flex; align-items: center; gap: 10px;">
+            <span id="clearSearchBtn" title="清空搜索" onclick="window.searchTabs('')" style="cursor: pointer; color: #666; font-size: 18px; user-select: none; display: none; margin-top: -2px;">✕</span>
+            <span id="searchResultCount" style="font-size: 13px; font-weight: bold; color: #2196F3; display: none; white-space: nowrap;"></span>
+          </div>
         </div>
       </div>
       <div class="view-controls">
@@ -1616,7 +1961,7 @@ document.addEventListener("DOMContentLoaded", () => {
         <button class="view-button" data-view="url">按网址</button>
         <button class="view-button" data-view="bySaveTime">按保存时间分组</button>
         <button class="view-button" data-view="byCustomGroup">按自定义分组</button>
-        <button class="view-button" data-view="byNote">按备注分组</button>
+        <button class="view-button" data-view="byNote">按标签分组</button>
         <button class="view-button" data-view="byTabGroup">按标签组</button>
         <button class="view-button" data-view="byRulesUnvisited">未访问(聚合)</button>
         <button class="view-button" data-view="byRulesUnvisitedInGroup">未访问(组内)</button>
@@ -1762,13 +2107,32 @@ document.addEventListener("DOMContentLoaded", () => {
 
         window.searchTabs = (q) => {
           q = q.toLowerCase();
+          const input = document.querySelector('.search-input');
+          if (input && input.value !== q) input.value = q;
+          
+          const clearBtn = document.getElementById('clearSearchBtn');
+          const countBadge = document.getElementById('searchResultCount');
+          if (clearBtn) clearBtn.style.display = q ? 'inline-block' : 'none';
+          
           const active = document.querySelector('.views > .active');
+          let visibleCount = 0;
           active.querySelectorAll('.tab-entry').forEach(e => {
             const match = e.dataset.title.toLowerCase().includes(q) || 
                          e.dataset.url.toLowerCase().includes(q) || 
-                         (e.dataset.note && e.dataset.note.toLowerCase().includes(q));
+                         (e.dataset.tags && e.dataset.tags.toLowerCase().includes(q));
             e.classList.toggle('hidden', !match);
+            if (match) visibleCount++;
           });
+          
+          if (countBadge) {
+            if (q) {
+              countBadge.textContent = '找到 ' + visibleCount + ' 个';
+              countBadge.style.display = 'inline';
+            } else {
+              countBadge.style.display = 'none';
+            }
+          }
+          
           active.querySelectorAll('.tab-group').forEach(g => {
             const hasVisible = g.querySelectorAll('.tab-entry:not(.hidden)').length > 0;
             g.style.display = hasVisible ? '' : 'none';
@@ -1883,7 +2247,13 @@ document.addEventListener("DOMContentLoaded", () => {
 
         function generateTabEntryInternal(link, i) {
           const saveTime = link.date ? \`<div class="tab-save-time">保存时间: \${link.date}</div>\` : '';
-          const noteDisplay = link.note ? \`<div class="tab-note">📝 备注: \${link.note}</div>\` : '';
+          
+          let tagsDisplay = '';
+          if (link.tags && link.tags.length > 0) {
+            const spanHTML = link.tags.map(t => \`<span onclick="event.stopPropagation(); window.searchTabs(this.textContent.trim())" title="点击过滤此标签" style="display:inline-block; padding:2px 8px; border-radius:12px; font-size:12px; font-weight:500; color:\${t.textColor || '#ffffff'}; text-shadow:0 1px 1px rgba(0,0,0,0.3); background:\${t.color}; margin-right:6px; cursor:pointer;">\${t.text}</span>\`).join('');
+            tagsDisplay = \`<div class="tab-tags" style="margin-top:6px;">\${spanHTML}</div>\`;
+          }
+          
           // 快照显示
           let snapshotHTML = '';
           const snapshotData = ALL_SNAPSHOTS_DATA[link.id];
@@ -1905,7 +2275,7 @@ document.addEventListener("DOMContentLoaded", () => {
             \`;
           }
 
-          return \`<div class="tab-entry" data-url="\${link.url}" data-title="\${link.title || ''}" data-note="\${link.note || ''}">
+          return \`<div class="tab-entry" data-url="\${link.url}" data-title="\${link.title || ''}" data-tags="\${link.tags ? link.tags.map(t=>t.text).join(' ') : ''}">
             <span class="tab-index">\${i+1}</span>
             <input type="checkbox" class="tab-checkbox" onclick="window.updateSelectionState()">
             <div class="tab-content">
@@ -1915,7 +2285,7 @@ document.addEventListener("DOMContentLoaded", () => {
                 <div class="tab-url collapsed">来源: \${link.title || '未知'}</div>
               </div>
               \${saveTime}
-              \${noteDisplay}
+              \${tagsDisplay}
               <div class="visit-info"><span class="visit-time"></span><span class="visit-count"></span></div>
               <div class="tab-markers">
                 <label class="marker-checkbox marker-downloaded"><input type="checkbox" class="marker-downloaded-cb" onchange="window.saveMarker(this, 'downloaded')"><span>✓ 已下载</span></label>
@@ -2085,32 +2455,48 @@ document.addEventListener("DOMContentLoaded", () => {
           applyState(container);
         }
 
-        function regenerateByNoteView() {
+        function regenerateByTagsView() {
           const container = document.getElementById('byNote');
-          const withNote = ALL_TABS_DATA.filter(t => t.note && t.note.trim());
-          const withoutNote = ALL_TABS_DATA.filter(t => !t.note || !t.note.trim());
+          const tagMap = new Map();
+          const withoutTags = [];
+          
+          ALL_TABS_DATA.forEach(link => {
+            if (!link.tags || link.tags.length === 0) {
+              withoutTags.push(link);
+            } else {
+              link.tags.forEach(tag => {
+                if (!tagMap.has(tag.text)) {
+                  tagMap.set(tag.text, { color: tag.color, textColor: tag.textColor || '#ffffff', links: [] });
+                }
+                tagMap.get(tag.text).links.push(link);
+              });
+            }
+          });
 
           let html = '';
+          const sortedTags = Array.from(tagMap.keys()).sort();
           
-          if (withNote.length > 0) {
+          sortedTags.forEach(tagText => {
+            const tagInfo = tagMap.get(tagText);
+            const links = tagInfo.links;
             html += \`
               <div class="tab-group">
                 <div class="group-header" onclick="window.toggleGroup(this)">
-                  <span class="group-header-title">📝 有备注 【共有\${withNote.length}个链接】</span>
+                  <span class="group-header-title">🏷️ <span onclick="event.stopPropagation(); window.searchTabs(this.textContent.trim())" title="点击搜索此标签" style="display:inline-block; padding:2px 6px; border-radius:10px; background:\${tagInfo.color}; color:\${tagInfo.textColor}; font-size:12px; cursor:pointer;">\${tagText}</span> 【共有\${links.length}个链接】</span>
                   <span class="toggle-icon">▾</span>
                 </div>
-                <div class="group-content">\${withNote.map((link, i) => generateTabEntryInternal(link, i)).join('')}</div>
+                <div class="group-content">\${links.map((link, i) => generateTabEntryInternal(link, i)).join('')}</div>
               </div>\`;
-          }
+          });
           
-          if (withoutNote.length > 0) {
+          if (withoutTags.length > 0) {
             html += \`
               <div class="tab-group">
                 <div class="group-header" onclick="window.toggleGroup(this)">
-                  <span class="group-header-title">📭 无备注 【共有\${withoutNote.length}个链接】</span>
+                  <span class="group-header-title">⚪ 无标签 【共有\${withoutTags.length}个链接】</span>
                   <span class="toggle-icon">▾</span>
                 </div>
-                <div class="group-content">\${withoutNote.map((link, i) => generateTabEntryInternal(link, i)).join('')}</div>
+                <div class="group-content">\${withoutTags.map((link, i) => generateTabEntryInternal(link, i)).join('')}</div>
               </div>\`;
           }
 
@@ -2149,7 +2535,7 @@ document.addEventListener("DOMContentLoaded", () => {
             } else if (btn.dataset.view === 'byRulesUnvisitedInGroup') {
               regenerateUnvisitedInGroupView();
             } else if (btn.dataset.view === 'byNote') {
-              regenerateByNoteView();
+              regenerateByTagsView();
             }
             window.searchTabs('');
           });
@@ -2174,6 +2560,14 @@ document.addEventListener("DOMContentLoaded", () => {
   
   // 搜索
   searchInput.addEventListener("input", renderLinks);
+  const clearBtn = document.getElementById('clearSearchBtn');
+  if (clearBtn) {
+    clearBtn.addEventListener('click', () => {
+      searchInput.value = '';
+      renderLinks();
+      searchInput.focus();
+    });
+  }
   
   // 主题切换
   chrome.storage.local.get(["themeMode"], (res) => {
@@ -2188,6 +2582,15 @@ document.addEventListener("DOMContentLoaded", () => {
     applyTheme(themeMode);
     chrome.storage.local.set({ themeMode });
   });
+
+  // 保存后自动关闭标签开关
+  if (autoCloseTabBtn) {
+    autoCloseTabBtn.addEventListener("change", () => {
+      chrome.storage.local.set({ autoCloseTab: autoCloseTabBtn.checked }, () => {
+        console.log("✅ 保存后自动关闭标签设置已更新:", autoCloseTabBtn.checked);
+      });
+    });
+  }
   
   function applyTheme(mode) {
     if (mode === "auto") {
@@ -2413,29 +2816,48 @@ document.addEventListener("DOMContentLoaded", () => {
     chrome.runtime.sendMessage({ action: 'updateContextMenus' });
   }
   
-  // 检查URL参数，如果有newGroup参数则打开分组管理
-  const urlParams = new URLSearchParams(window.location.search);
-  if (urlParams.get('action') === 'newGroup') {
-    setTimeout(() => {
-      groupModal.classList.add("show");
-      renderGroupList();
-      newGroupName.focus();
-    }, 500);
-  }
+
   
   // ========== 分组管理功能结束 ==========
   
+  // 批量模式标记：只有通过"取消选择"才能关闭工具栏
+  let batchModeActive = false;
+  
   // 更新批量操作工具栏
   function updateBatchToolbar() {
-    const checkboxes = document.querySelectorAll('.link-checkbox:checked');
+    const checkedBoxes = document.querySelectorAll('.link-checkbox:checked');
+    const allBoxes = document.querySelectorAll('.link-checkbox');
     const batchToolbar = document.getElementById('batchToolbar');
     const batchCount = document.getElementById('batchCount');
+    const selectAllCb = document.getElementById('batchSelectAllCheckbox');
     
-    if (checkboxes.length > 0) {
+    if (checkedBoxes.length > 0) {
+      batchModeActive = true;
       batchToolbar.style.display = 'flex';
-      batchCount.textContent = `已选择 ${checkboxes.length} 个`;
+      batchCount.textContent = `已选择 ${checkedBoxes.length} 个`;
+    } else if (batchModeActive) {
+      // 批量模式激活后，即使取消全选也保持工具栏显示
+      batchToolbar.style.display = 'flex';
+      batchCount.textContent = `已选择 0 个`;
     } else {
       batchToolbar.style.display = 'none';
+    }
+    
+    // 更新全选复选框状态
+    if (selectAllCb) {
+      if (allBoxes.length === 0) {
+        selectAllCb.checked = false;
+        selectAllCb.indeterminate = false;
+      } else if (checkedBoxes.length === allBoxes.length) {
+        selectAllCb.checked = true;
+        selectAllCb.indeterminate = false;
+      } else if (checkedBoxes.length > 0) {
+        selectAllCb.checked = false;
+        selectAllCb.indeterminate = true;
+      } else {
+        selectAllCb.checked = false;
+        selectAllCb.indeterminate = false;
+      }
     }
   }
   
@@ -2560,10 +2982,22 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   }
   
-  // 取消选择
+  // 取消选择 - 这是唯一关闭批量工具栏的方式
   function cancelBatchSelection() {
     document.querySelectorAll('.link-checkbox').forEach(cb => cb.checked = false);
-    updateBatchToolbar();
+    // 同时取消所有分组全选复选框
+    document.querySelectorAll('.group-select-all').forEach(cb => {
+      cb.checked = false;
+      cb.indeterminate = false;
+    });
+    batchModeActive = false;
+    const batchToolbar = document.getElementById('batchToolbar');
+    if (batchToolbar) batchToolbar.style.display = 'none';
+    const selectAllCb = document.getElementById('batchSelectAllCheckbox');
+    if (selectAllCb) {
+      selectAllCb.checked = false;
+      selectAllCb.indeterminate = false;
+    }
   }
   
   // 标记重复链接
@@ -2597,6 +3031,26 @@ document.addEventListener("DOMContentLoaded", () => {
     
     updateBatchToolbar();
     alert(`找到 ${duplicateIds.length} 个重复链接，已自动选中`);
+  }
+  
+  // 过滤显示关键字(如：点击重复标签/胶囊标签等)
+  function filterByKeyword(keyword) {
+    // 如果关键字本身包含空格并且还没有加双引号，则将其包裹在双引号内作为一个整体查询
+    if (keyword.includes(' ') && !keyword.startsWith('"') && !keyword.endsWith('"')) {
+      keyword = `"${keyword}"`;
+    }
+    // 将关键字放入搜索框并触发过滤
+    searchInput.value = keyword;
+    // 切换到"全部"视图以确保能看到所有匹配条目
+    currentView = 'all';
+    // 更新视图标签激活状态
+    document.querySelectorAll('.view-tab[data-view]').forEach(tab => {
+      tab.classList.toggle('active', tab.dataset.view === 'all');
+    });
+    localStorage.setItem('currentView', 'all');
+    renderLinks();
+    // 滚动到顶部
+    window.scrollTo({ top: 0, behavior: 'smooth' });
   }
   
   // 过滤重复链接（只显示重复的）
@@ -2706,6 +3160,33 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   });
 
-  // 初始加载
+  // 初始加载：恢复视图tab的激活状态
+  (function restoreActiveTab() {
+    // 先移除所有tab的active
+    viewTabs.forEach(t => t.classList.remove('active'));
+    
+    if (currentView === 'byDate') {
+      // byDate 按钮不在 viewTabs 的 data-view 中，需要特殊处理
+      const byDateBtn = document.getElementById('byDateBtn');
+      if (byDateBtn) byDateBtn.classList.add('active');
+    } else {
+      // 查找匹配 data-view 的 tab
+      let found = false;
+      viewTabs.forEach(t => {
+        if (t.dataset.view === currentView) {
+          t.classList.add('active');
+          found = true;
+        }
+      });
+      // 如果没找到匹配的，回退到 "all"
+      if (!found) {
+        currentView = 'all';
+        viewTabs.forEach(t => {
+          if (t.dataset.view === 'all') t.classList.add('active');
+        });
+      }
+    }
+  })();
+
   loadLinks();
 });

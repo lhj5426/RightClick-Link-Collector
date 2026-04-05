@@ -64,14 +64,7 @@ function createContextMenus() {
             });
           });
           
-          // 新建分组选项
-          chrome.contextMenus.create({
-            id: "saveLink_newGroup",
-            parentId: "saveLinkParent",
-            title: "+ 新建分组...",
-            contexts: ["link"]
-          });
-          
+
           // 保存页面的父菜单
           chrome.contextMenus.create({
             id: "savePageParent",
@@ -97,14 +90,7 @@ function createContextMenus() {
             });
           });
           
-          // 新建分组选项
-          chrome.contextMenus.create({
-            id: "savePage_newGroup",
-            parentId: "savePageParent",
-            title: "+ 新建分组...",
-            contexts: ["page"]
-          });
-          
+
           console.log(`创建了带分组的菜单（${groups.length} 个分组）`);
         }
         
@@ -183,13 +169,7 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
   try {
     const menuId = info.menuItemId;
     
-    // 处理新建分组
-    if (menuId === "saveLink_newGroup" || menuId === "savePage_newGroup") {
-      chrome.tabs.create({ 
-        url: chrome.runtime.getURL('manager.html') + '?action=newGroup'
-      });
-      return;
-    }
+
     
     // 解析菜单ID获取分组ID
     let groupId = null;
@@ -236,97 +216,199 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
       date: formatDateDDMMYYYY(new Date()),
       groupId: groupId,
       favorite: false,
-      desc: "" // 初始化描述
+      desc: "",
+      hasSnapshot: false
     };
 
-    // 尝试并行抓取快照和执行脚本，减少响应延迟（解决卡顿问题）
+    // 获取分组名称和颜色（独立获取，确保不影响保存流程）
+    let groupName = "全局（无分组）";
+    let groupColor = "#ebf8ff"; // 默认淡蓝色背景
+    try {
+      const storageData = await chromeStorageGet(['groups', 'lastRightClick']);
+      const groups = Array.isArray(storageData.groups) ? storageData.groups : [];
+      const group = groups.find(g => g.id === groupId);
+      if (group) {
+        groupName = group.name;
+        groupColor = group.color || "#ebf8ff";
+      }
+      
+      // 预先读取右键位置信息
+      const lastClick = storageData.lastRightClick || {};
+      const useLastClick = lastClick.time && (Date.now() - lastClick.time < 30000);
+      
+      // 即使脚本执行失败也保留基础位置信息
+      if (useLastClick || info.x !== undefined) {
+        item.clickPoint = {
+          x: useLastClick ? lastClick.x : (info.x || 0),
+          y: useLastClick ? lastClick.y : (info.y || 0),
+          viewportW: 0,
+          viewportH: 0,
+          dpr: 1
+        };
+      }
+    } catch (e) {
+      console.warn("读取存储信息失败:", e);
+    }
+
+    // === 步骤1：独立截取快照 ===
+    let snapshotDataUrl = null;
     if (tab && tab.id) {
       try {
-        // 并行执行：截取快照 + 执行脚本获取描述和视口信息 + 获取分组信息
-        const [dataUrl, scriptResults, storageData] = await Promise.all([
-          chrome.tabs.captureVisibleTab(tab.windowId, { format: 'jpeg', quality: 80 }).catch(e => {
-            console.warn("快照截取失败:", e);
-            return null;
-          }),
-          chrome.scripting.executeScript({
-            target: { tabId: tab.id },
-            func: () => {
-              const meta = document.querySelector('meta[name="description"]') || 
-                           document.querySelector('meta[property="og:description"]');
-              return {
-                desc: meta ? meta.getAttribute('content') : "",
-                width: window.innerWidth,
-                height: window.innerHeight,
-                dpr: window.devicePixelRatio
-              };
-            }
-          }).catch(e => {
-            console.warn("脚本执行失败:", e);
-            return null;
-          }),
-          chrome.storage.local.get(['lastRightClick', 'groups'])
-        ]);
-
+        const dataUrl = await chrome.tabs.captureVisibleTab(tab.windowId, { format: 'jpeg', quality: 80 });
         if (dataUrl) {
           await DB.saveSnapshot(itemId, dataUrl);
           item.hasSnapshot = true;
+          snapshotDataUrl = dataUrl;
+          console.log("✅ 快照截取成功");
         }
-
-        // 获取分组名称（用于通知）
-        const groups = Array.isArray(storageData.groups) ? storageData.groups : [];
-        const group = groups.find(g => g.id === groupId);
-        const groupName = group ? group.name : "全局（无分组）";
-
-        if (scriptResults && scriptResults[0] && scriptResults[0].result) {
-          const res = scriptResults[0].result;
-          item.desc = res.desc;
-
-          // 使用获取到的右键位置
-          const lastClick = storageData.lastRightClick || {};
-          const useLastClick = lastClick.time && (Date.now() - lastClick.time < 10000);
-          
-          item.clickPoint = {
-            x: useLastClick ? lastClick.x : info.x,
-            y: useLastClick ? lastClick.y : info.y,
-            viewportW: res.width,
-            viewportH: res.height,
-            dpr: res.dpr
-          };
-        }
-        
-        // 保存项目并带有分组名称
-        saveLinkItem(item, tab.id, groupName);
-        return;
       } catch (e) {
-        console.warn("抓取增强信息失败:", e);
+        console.warn("⚠️ 快照截取失败:", e.message);
       }
     }
+
+    // === 步骤2：独立执行脚本获取页面描述和视口信息 ===
+    if (tab && tab.id) {
+      try {
+        const scriptResults = await chrome.scripting.executeScript({
+          target: { tabId: tab.id },
+          func: () => {
+            const meta = document.querySelector('meta[name="description"]') || 
+                         document.querySelector('meta[property="og:description"]');
+            return {
+              desc: meta ? meta.getAttribute('content') : "",
+              width: window.innerWidth,
+              height: window.innerHeight,
+              dpr: window.devicePixelRatio
+            };
+          }
+        });
+        
+        if (scriptResults && scriptResults[0] && scriptResults[0].result) {
+          const res = scriptResults[0].result;
+          item.desc = res.desc || "";
+          
+          // 用脚本获取的视口信息补全 clickPoint
+          if (item.clickPoint) {
+            item.clickPoint.viewportW = res.width;
+            item.clickPoint.viewportH = res.height;
+            item.clickPoint.dpr = res.dpr;
+          } else {
+            item.clickPoint = {
+              x: info.x || 0,
+              y: info.y || 0,
+              viewportW: res.width,
+              viewportH: res.height,
+              dpr: res.dpr
+            };
+          }
+          console.log("✅ 页面信息获取成功");
+        }
+      } catch (e) {
+        console.warn("⚠️ 脚本执行失败:", e.message);
+      }
+    }
+
+    // === 步骤3：保存链接（最关键，必须成功） ===
+    await saveLinkItem(item, tab?.id, groupName, snapshotDataUrl, groupColor);
     
-    // 兜底保存（没有标签页信息时）
-    saveLinkItem(item, tab?.id);
   } catch (err) {
-    console.error("contextMenus.onClicked error:", err);
+    console.error("❌ contextMenus.onClicked 严重错误:", err);
+    
+    // 最终兜底：即使前面出错，也尝试以最简方式保存
+    try {
+      const fallbackItem = {
+        id: Date.now(),
+        title: String(info.linkText || info.selectionText || "未知"),
+        url: String(info.linkUrl || info.pageUrl || ""),
+        page: "",
+        date: formatDateDDMMYYYY(new Date()),
+        groupId: null,
+        favorite: false,
+        desc: "",
+        hasSnapshot: false
+      };
+      if (fallbackItem.url) {
+        await saveLinkItem(fallbackItem, tab?.id);
+        console.log("✅ 兜底保存成功");
+      }
+    } catch (fallbackErr) {
+      console.error("❌ 兜底保存也失败:", fallbackErr);
+    }
   }
 });
 
-function saveLinkItem(item, tabId, groupName = "全局（无分组）") {
-  chrome.storage.local.get({ links: [] }, (res) => {
-    const links = Array.isArray(res.links) ? res.links : [];
-    links.unshift(item);
-    
-    chrome.storage.local.set({ links }, () => {
-      console.log("已保存项目并包含快照:", item.hasSnapshot);
-      
-      // 发送页面通知（显示具体分组名和时间）
-      if (tabId) {
-        chrome.tabs.sendMessage(tabId, {
-          action: 'showNotification',
-          title: item.title,
-          url: item.url,
-          groupName: groupName,
-          date: item.date
-        }).catch(() => {});
+// Promise 封装 chrome.storage.local.get（避免回调/Promise 不一致问题）
+function chromeStorageGet(keys) {
+  return new Promise((resolve, reject) => {
+    try {
+      chrome.storage.local.get(keys, (result) => {
+        if (chrome.runtime.lastError) {
+          reject(chrome.runtime.lastError);
+        } else {
+          resolve(result || {});
+        }
+      });
+    } catch (e) {
+      reject(e);
+    }
+  });
+}
+
+// 保存链接到存储（Promise 版，确保可被 await）
+function saveLinkItem(item, tabId, groupName = "全局（无分组）", snapshotDataUrl = null, groupColor = "#ebf8ff") {
+  return new Promise((resolve, reject) => {
+    chrome.storage.local.get({ links: [] }, (res) => {
+      if (chrome.runtime.lastError) {
+        console.error("读取链接列表失败:", chrome.runtime.lastError);
+        reject(chrome.runtime.lastError);
+        return;
       }
+      
+      const links = Array.isArray(res.links) ? res.links : [];
+      links.unshift(item);
+      
+      chrome.storage.local.set({ links }, () => {
+        if (chrome.runtime.lastError) {
+          console.error("保存链接失败:", chrome.runtime.lastError);
+          reject(chrome.runtime.lastError);
+          return;
+        }
+        
+        console.log("✅ 链接已保存:", item.url.substring(0, 60), "快照:", item.hasSnapshot);
+        
+        // 发送页面通知（显示分组名、时间、截图状态、缩略图）
+        if (tabId) {
+          // 自动关闭标签页逻辑 - 获取配置并传递给 content script
+          chrome.storage.local.get({ autoCloseTab: false }, (data) => {
+            chrome.tabs.sendMessage(tabId, {
+              action: 'showNotification',
+              title: item.title,
+              url: item.url,
+              groupName: groupName,
+              groupColor: groupColor, // 传递分组颜色
+              date: item.date,
+              hasSnapshot: item.hasSnapshot,
+              snapshotDataUrl: snapshotDataUrl,
+              autoClose: data.autoCloseTab,
+              totalCount: links.length // 传递当前总条数
+            }).catch(() => {
+              console.log("⚠️ 页面通知发送失败（可能是特殊页面）");
+            });
+          });
+        }
+
+
+        
+        resolve();
+      });
     });
   });
 }
+
+// 监听来自 content script 的消息（例如通知播放完毕后关闭标签）
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  if (message.action === 'closeTab' && sender.tab) {
+    console.log("🚀 收到关闭标签请求:", sender.tab.id);
+    chrome.tabs.remove(sender.tab.id);
+  }
+});
