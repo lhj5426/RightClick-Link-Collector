@@ -1966,6 +1966,9 @@ document.addEventListener("DOMContentLoaded", () => {
         <button class="view-button" data-view="byRulesUnvisited">未访问(聚合)</button>
         <button class="view-button" data-view="byRulesUnvisitedInGroup">未访问(组内)</button>
         <button class="view-button" data-view="grouped">按域名分组</button>
+        <button class="view-button" data-view="byDownloaded" style="border-left: 4px solid #4CAF50;">✓ 已下载</button>
+        <button class="view-button" data-view="byNotDownloaded" style="border-left: 4px solid #F44336;">✗ 未下载</button>
+        <button class="view-button" data-view="byUnchecked" style="border-left: 4px solid #9E9E9E;">⚪ 未勾选</button>
       </div>
       <div class="views">
         <div class="tabs-container active" id="recent">${links.map((link, i) => generateTabEntry(link, i + 1)).join('')}</div>
@@ -2003,6 +2006,9 @@ document.addEventListener("DOMContentLoaded", () => {
             </div>`;
           }).join('')}
         </div>
+        <div class="tabs-container" id="byDownloaded"></div>
+        <div class="tabs-container" id="byNotDownloaded"></div>
+        <div class="tabs-container" id="byUnchecked"></div>
       </div>
       
       <!-- Preview Modal for Exported HTML -->
@@ -2455,6 +2461,35 @@ document.addEventListener("DOMContentLoaded", () => {
           applyState(container);
         }
 
+        function regenerateByMarker(type) {
+          const container = document.getElementById('by' + type);
+          const markers = getMarkers();
+          let filteredLinks;
+          
+          if (type === 'Downloaded') {
+            filteredLinks = ALL_TABS_DATA.filter(t => markers[t.url] && markers[t.url].downloaded);
+          } else if (type === 'NotDownloaded') {
+            filteredLinks = ALL_TABS_DATA.filter(t => markers[t.url] && markers[t.url].skipped);
+          } else { // Unchecked
+            filteredLinks = ALL_TABS_DATA.filter(t => !markers[t.url] || (!markers[t.url].downloaded && !markers[t.url].skipped));
+          }
+
+          if (filteredLinks.length === 0) {
+            container.innerHTML = '<div class="empty-state"><p>没有匹配的链接</p></div>';
+            return;
+          }
+
+          container.innerHTML = \`
+            <div class="tab-group">
+              <div class="group-header" onclick="window.toggleGroup(this)">
+                <span class="group-header-title">链接列表 【共有\${filteredLinks.length}个链接】</span>
+                <span class="toggle-icon">▾</span>
+              </div>
+              <div class="group-content">\${filteredLinks.map((link, i) => generateTabEntryInternal(link, i)).join('')}</div>
+            </div>\`;
+          applyState(container);
+        }
+
         function regenerateByTagsView() {
           const container = document.getElementById('byNote');
           const tagMap = new Map();
@@ -2536,6 +2571,12 @@ document.addEventListener("DOMContentLoaded", () => {
               regenerateUnvisitedInGroupView();
             } else if (btn.dataset.view === 'byNote') {
               regenerateByTagsView();
+            } else if (btn.dataset.view === 'byDownloaded') {
+              regenerateByMarker('Downloaded');
+            } else if (btn.dataset.view === 'byNotDownloaded') {
+              regenerateByMarker('NotDownloaded');
+            } else if (btn.dataset.view === 'byUnchecked') {
+              regenerateByMarker('Unchecked');
             }
             window.searchTabs('');
           });
