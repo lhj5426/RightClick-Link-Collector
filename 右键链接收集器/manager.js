@@ -1452,7 +1452,8 @@ document.addEventListener("DOMContentLoaded", () => {
       const out = linksToExport.map((l, i) => 
         `${i + 1}. ${l.url}\n来源: ${l.title || l.page || '未知'}\n日期: ${l.date || ''}`
       ).join("\n\n");
-      const filename = `保存了${linksToExport.length}个链接 - ${fileTimestamp}.txt`;
+      const scopeText = options.selected ? "选中" : "全部";
+      const filename = `保存了${linksToExport.length}个链接(${scopeText}) - ${fileTimestamp}.txt`;
       downloadBlob(out, filename, "text/plain");
     } else if (format === "csv") {
       const rows = ["序号,网址,来源,日期"];
@@ -1481,7 +1482,9 @@ document.addEventListener("DOMContentLoaded", () => {
 
       const timestamp = new Date().toLocaleString('zh-CN');
       const htmlContent = generateFullHTML(linksToExport, allGroups, timestamp, snapshots, options.snapshots);
-      const filename = `保存了${linksToExport.length}个链接 - ${fileTimestamp}.html`;
+      const scopeText = options.selected ? "选中" : "全部";
+      const snapText = options.snapshots ? "带快照" : "无快照";
+      const filename = `保存了${linksToExport.length}个链接(${scopeText}-${snapText}) - ${fileTimestamp}.html`;
       downloadBlob(htmlContent, filename, "text/html");
     } else if (format === "doc") {
       const docParts = [
@@ -1543,7 +1546,7 @@ document.addEventListener("DOMContentLoaded", () => {
     const minutes = String(now.getMinutes()).padStart(2, '0');
     const seconds = String(now.getSeconds()).padStart(2, '0');
     
-    const filename = `链接收集器数据_${year}-${month}-${day}_${hours}${minutes}${seconds}.json`;
+    const filename = `链接收集器数据(${allLinks.length}个链接)_${year}-${month}-${day}_${hours}${minutes}${seconds}.json`;
     downloadBlob(JSON.stringify(data, null, 2), filename, 'application/json');
   }
   
