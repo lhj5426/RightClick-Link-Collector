@@ -32,6 +32,7 @@ document.addEventListener("DOMContentLoaded", () => {
   const groupList = document.getElementById("groupList");
   const newGroupName = document.getElementById("newGroupName");
   const newGroupColor = document.getElementById("newGroupColor");
+  const newGroupTextColor = document.getElementById("newGroupTextColor");
   const addGroupBtn = document.getElementById("addGroupBtn");
   const autoCloseTabBtn = document.getElementById("autoCloseTabBtn");
   
@@ -801,7 +802,7 @@ document.addEventListener("DOMContentLoaded", () => {
     if (groupId) {
       const group = allGroups.find(g => g.id === groupId);
       if (group) {
-        groupBadge = `<span class="group-badge" style="background: ${group.color}; cursor: pointer;" data-group-name="${escapeHtml(group.name)}" title="点击过滤此分组">${group.name}</span>`;
+        groupBadge = `<span class="group-badge" style="background: ${group.color}; color: ${group.textColor || '#FFFFFF'}; cursor: pointer;" data-group-name="${escapeHtml(group.name)}" title="点击过滤此分组">${group.name}</span>`;
         groupColor = group.color;
       }
     } else {
@@ -1033,6 +1034,13 @@ document.addEventListener("DOMContentLoaded", () => {
             <button class="btn btn-primary" id="addTagBtn" style="padding: 8px 20px; white-space: nowrap; height: 40px;">添加</button>
           </div>
           
+          <div style="margin-top: 15px; border-top: 1px solid var(--border); padding-top: 10px;">
+            <div style="font-size: 13px; color: var(--text-muted); margin-bottom: 8px;">标签列表 (点击快速添加)：</div>
+            <div id="historicalTagsContainer" style="display: flex; flex-wrap: wrap; gap: 6px; max-height: 100px; overflow-y: auto;">
+              <!-- 历史标签渲染在此处 -->
+            </div>
+          </div>
+          
           <div style="display: flex; gap: 10px; justify-content: flex-end; margin-top: 25px;">
             <button class="btn btn-secondary" id="tagDialogCancel">取消</button>
             <button class="btn btn-danger" id="clearTags">清空全标签</button>
@@ -1048,6 +1056,21 @@ document.addEventListener("DOMContentLoaded", () => {
     const textInput = dialog.querySelector('#tagTextInput');
     const colorInput = dialog.querySelector('#tagColorInput');
     const textColorInput = dialog.querySelector('#tagTextColorInput');
+    const historicalContainer = dialog.querySelector('#historicalTagsContainer');
+    
+    // 收集所有已存在的标签以供快速选择
+    const allExistingTags = [];
+    const tagMap = new Map();
+    allLinks.forEach(l => {
+        if (Array.isArray(l.tags)) {
+            l.tags.forEach(t => {
+                if (!tagMap.has(t.text)) {
+                    tagMap.set(t.text, true);
+                    allExistingTags.push(t);
+                }
+            });
+        }
+    });
     
     function renderEditTags() {
       container.innerHTML = '';
@@ -1088,6 +1111,39 @@ document.addEventListener("DOMContentLoaded", () => {
     }
     
     renderEditTags();
+    
+    // 渲染历史标签
+    if (allExistingTags.length === 0) {
+        historicalContainer.innerHTML = '<span style="font-size: 12px; color: var(--text-muted); font-style: italic;">暂无可用标签</span>';
+    } else {
+        allExistingTags.forEach(tag => {
+            const span = document.createElement('span');
+            span.className = 'edit-tag-capsule';
+            span.style.background = tag.color;
+            const textC = tag.textColor || '#ffffff';
+            span.style.color = textC;
+            span.style.cursor = 'pointer';
+            span.style.opacity = '0.7';
+            span.title = '点击直接添加此标签';
+            span.textContent = tag.text;
+            
+            span.onmouseenter = () => span.style.opacity = '1';
+            span.onmouseleave = () => span.style.opacity = '0.7';
+            
+            span.addEventListener('click', () => {
+                const existingIndex = currentTags.findIndex(t => t.text === tag.text);
+                if (existingIndex >= 0) {
+                    currentTags[existingIndex].color = tag.color;
+                    currentTags[existingIndex].textColor = textC;
+                } else {
+                    currentTags.push({ text: tag.text, color: tag.color, textColor: textC });
+                }
+                renderEditTags();
+            });
+            historicalContainer.appendChild(span);
+        });
+    }
+
     textInput.focus();
     
     function addNewTag() {
@@ -2421,8 +2477,8 @@ document.addEventListener("DOMContentLoaded", () => {
                   <div class="tab-group">
                     <div class="group-header" onclick="window.toggleGroup(this)">
                       <span class="group-header-title">
-                        <span style="display:inline-block;width:16px;height:16px;background:\${group.color};border-radius:3px;margin-right:8px;vertical-align:middle;"></span>
-                        \${group.name} 【未访问 \${groupLinks.length} 个链接】
+                        <span style="display:inline-block;width:16px;height:16px;background:${group.color};border-radius:3px;margin-right:8px;vertical-align:middle;"></span>
+                        ${group.name} 【未访问 ${groupLinks.length} 个链接】
                       </span>
                       <span class="toggle-icon">▾</span>
                     </div>
@@ -2690,7 +2746,18 @@ document.addEventListener("DOMContentLoaded", () => {
           <button class="group-sort-btn" data-direction="up" data-index="${index}" ${index === 0 ? 'disabled' : ''}>▲</button>
           <button class="group-sort-btn" data-direction="down" data-index="${index}" ${index === allGroups.length - 1 ? 'disabled' : ''}>▼</button>
         </div>
-        <div class="group-color" style="background: ${group.color}" data-group-id="${group.id}"></div>
+        <div style="display:flex; align-items:center; gap:6px; flex-shrink:0; margin-right: 10px;">
+          <label style="font-size:12px; font-weight:bold; color:var(--text-muted); display:flex; align-items:center; gap:4px; cursor:pointer;" title="修改背景色">
+            背景<div class="group-color" style="position:relative; overflow:hidden; background: ${group.color};" data-group-id="${group.id}">
+              <input type="color" value="${group.color}" class="group-color-input" style="position:absolute;left:0;top:0;width:100%;height:100%;opacity:0;cursor:pointer;">
+            </div>
+          </label>
+          <label style="font-size:12px; font-weight:bold; color:var(--text-muted); display:flex; align-items:center; gap:4px; cursor:pointer;" title="修改文字色">
+            文字<div class="group-text-color" style="position:relative; overflow:hidden; background: ${group.textColor || '#FFFFFF'}; border: 2px solid var(--border); width: 24px; height: 24px; border-radius: 4px; cursor: pointer;" data-group-id="${group.id}">
+              <input type="color" value="${group.textColor || '#FFFFFF'}" class="group-text-color-input" style="position:absolute;left:0;top:-2px;width:100%;height:30px;opacity:0;cursor:pointer;">
+            </div>
+          </label>
+        </div>
         <div class="group-name">${escapeHtml(group.name)}</div>
         <div class="group-count">${linkCount} 个链接</div>
         <div class="group-actions">
@@ -2716,15 +2783,23 @@ document.addEventListener("DOMContentLoaded", () => {
       }
       
       // 颜色选择器
-      const colorDiv = item.querySelector(".group-color");
-      colorDiv.addEventListener("click", () => {
-        const input = document.createElement("input");
-        input.type = "color";
-        input.value = group.color;
-        input.onchange = () => {
-          updateGroupColor(group.id, input.value);
-        };
-        input.click();
+      const colorInput = item.querySelector(".group-color-input");
+      colorInput.addEventListener("input", (e) => {
+        // 实时预览
+        item.querySelector(".group-color").style.background = e.target.value;
+      });
+      colorInput.addEventListener("change", (e) => {
+        updateGroupColor(group.id, e.target.value);
+      });
+      
+      // 文字颜色选择器
+      const textColorInput = item.querySelector(".group-text-color-input");
+      textColorInput.addEventListener("input", (e) => {
+        // 实时预览
+        item.querySelector(".group-text-color").style.background = e.target.value;
+      });
+      textColorInput.addEventListener("change", (e) => {
+        updateGroupTextColor(group.id, e.target.value);
       });
       
       // 编辑按钮
@@ -2764,6 +2839,7 @@ document.addEventListener("DOMContentLoaded", () => {
   addGroupBtn.addEventListener("click", () => {
     const name = newGroupName.value.trim();
     const color = newGroupColor.value;
+    const textColor = newGroupTextColor ? newGroupTextColor.value : '#FFFFFF';
     
     if (!name) {
       alert("请输入分组名称！");
@@ -2773,13 +2849,15 @@ document.addEventListener("DOMContentLoaded", () => {
     const newGroup = {
       id: 'group_' + Date.now(),
       name: name,
-      color: color
+      color: color,
+      textColor: textColor
     };
     
     allGroups.push(newGroup);
     chrome.storage.local.set({ groups: allGroups }, () => {
       newGroupName.value = "";
       newGroupColor.value = "#2196F3";
+      if (newGroupTextColor) newGroupTextColor.value = "#FFFFFF";
       renderGroupList();
       updateContextMenus();
       renderLinks();
@@ -2805,6 +2883,18 @@ document.addEventListener("DOMContentLoaded", () => {
     const group = allGroups.find(g => g.id === groupId);
     if (group) {
       group.color = newColor;
+      chrome.storage.local.set({ groups: allGroups }, () => {
+        renderGroupList();
+        renderLinks();
+      });
+    }
+  }
+
+  // 更新分组文字颜色
+  function updateGroupTextColor(groupId, newColor) {
+    const group = allGroups.find(g => g.id === groupId);
+    if (group) {
+      group.textColor = newColor;
       chrome.storage.local.set({ groups: allGroups }, () => {
         renderGroupList();
         renderLinks();

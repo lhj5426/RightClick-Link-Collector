@@ -110,10 +110,17 @@
         <div class="group-list" id="groupList">
           <!-- 分组列表将动态插入 -->
         </div>
-        <div class="add-group-section">
-          <input type="text" id="newGroupName" placeholder="输入新分组名称..." maxlength="20" />
-          <input type="color" id="newGroupColor" value="#2196F3" title="选择颜色" />
-          <button id="addGroupBtn" class="btn btn-primary">➕ 添加分组</button>
+        <div class="add-group-section" style="flex-wrap: wrap;">
+          <input type="text" id="newGroupName" placeholder="输入新分组名称..." maxlength="20" style="flex: 1; min-width: 150px;"/>
+          <div style="display:flex; gap:12px; align-items:center; flex-shrink: 0;">
+            <label style="font-size:13px; font-weight:bold; color:var(--text-muted); display:flex; align-items:center; gap:6px; cursor:pointer;" title="选择背景色">
+              背景<input type="color" id="newGroupColor" value="#2196F3" style="width:40px;height:40px;padding:2px;cursor:pointer;border:2px solid var(--border);border-radius:6px;">
+            </label>
+            <label style="font-size:13px; font-weight:bold; color:var(--text-muted); display:flex; align-items:center; gap:6px; cursor:pointer;" title="选择文字色">
+              文字<input type="color" id="newGroupTextColor" value="#FFFFFF" style="width:40px;height:40px;padding:2px;cursor:pointer;border:2px solid var(--border);border-radius:6px;">
+            </label>
+          </div>
+          <button id="addGroupBtn" class="btn btn-primary" style="padding: 8px 20px; white-space: nowrap; height: 40px;">➕ 添加分组</button>
         </div>
       </div>
     </div>

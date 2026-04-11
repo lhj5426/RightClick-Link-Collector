@@ -26,13 +26,13 @@ function createContextMenus() {
           // 没有分组时，直接保存到全局
           chrome.contextMenus.create({
             id: "saveLink_global",
-            title: "05.保存链接到收集器",
+            title: "0-保存链接到收集器",
             contexts: ["link"]
           });
           
           chrome.contextMenus.create({
             id: "savePage_global",
-            title: "05.保存页面到收集器",
+            title: "0-保存页面到收集器",
             contexts: ["page"]
           });
           
@@ -41,7 +41,7 @@ function createContextMenus() {
           // 有分组时，显示子菜单
           chrome.contextMenus.create({
             id: "saveLinkParent",
-            title: "05.保存链接到收集器",
+            title: "0-保存链接到收集器",
             contexts: ["link"]
           });
           
@@ -68,7 +68,7 @@ function createContextMenus() {
           // 保存页面的父菜单
           chrome.contextMenus.create({
             id: "savePageParent",
-            title: "05.保存页面到收集器",
+            title: "0-保存页面到收集器",
             contexts: ["page"]
           });
           
@@ -223,6 +223,7 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
     // 获取分组名称和颜色（独立获取，确保不影响保存流程）
     let groupName = "全局（无分组）";
     let groupColor = "#ebf8ff"; // 默认淡蓝色背景
+    let groupTextColor = "#1967d2"; // 默认文字颜色
     try {
       const storageData = await chromeStorageGet(['groups', 'lastRightClick']);
       const groups = Array.isArray(storageData.groups) ? storageData.groups : [];
@@ -230,6 +231,7 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
       if (group) {
         groupName = group.name;
         groupColor = group.color || "#ebf8ff";
+        groupTextColor = group.textColor || "#FFFFFF";
       }
       
       // 预先读取右键位置信息
@@ -309,7 +311,7 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
     }
 
     // === 步骤3：保存链接（最关键，必须成功） ===
-    await saveLinkItem(item, tab?.id, groupName, snapshotDataUrl, groupColor);
+    await saveLinkItem(item, tab?.id, groupName, snapshotDataUrl, groupColor, groupTextColor);
     
   } catch (err) {
     console.error("❌ contextMenus.onClicked 严重错误:", err);
@@ -355,7 +357,7 @@ function chromeStorageGet(keys) {
 }
 
 // 保存链接到存储（Promise 版，确保可被 await）
-function saveLinkItem(item, tabId, groupName = "全局（无分组）", snapshotDataUrl = null, groupColor = "#ebf8ff") {
+function saveLinkItem(item, tabId, groupName = "全局（无分组）", snapshotDataUrl = null, groupColor = "#ebf8ff", groupTextColor = "#1967d2") {
   return new Promise((resolve, reject) => {
     chrome.storage.local.get({ links: [] }, (res) => {
       if (chrome.runtime.lastError) {
@@ -386,6 +388,7 @@ function saveLinkItem(item, tabId, groupName = "全局（无分组）", snapshot
               url: item.url,
               groupName: groupName,
               groupColor: groupColor, // 传递分组颜色
+              groupTextColor: groupTextColor, // 传递分组文字颜色
               date: item.date,
               hasSnapshot: item.hasSnapshot,
               snapshotDataUrl: snapshotDataUrl,

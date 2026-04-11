@@ -1,10 +1,10 @@
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.action === 'showNotification') {
-    showToast(message.title, message.url, message.groupName, message.date, message.hasSnapshot, message.snapshotDataUrl, message.autoClose, message.totalCount, message.groupColor);
+    showToast(message.title, message.url, message.groupName, message.date, message.hasSnapshot, message.snapshotDataUrl, message.autoClose, message.totalCount, message.groupColor, message.groupTextColor);
   }
 });
 
-function showToast(title, url, groupName, date, hasSnapshot, snapshotDataUrl, autoClose, totalCount, groupColor) {
+function showToast(title, url, groupName, date, hasSnapshot, snapshotDataUrl, autoClose, totalCount, groupColor, explicitTextColor) {
   // 防止重复创建样式
   if (!document.getElementById('link-collector-toast-style')) {
     const style = document.createElement('style');
@@ -187,7 +187,7 @@ function showToast(title, url, groupName, date, hasSnapshot, snapshotDataUrl, au
     const luminance = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
     return luminance > 0.7 ? '#1967d2' : '#ffffff';
   }
-  const groupTextColor = getGroupTextColor(finalGroupColor);
+  const groupTextColor = explicitTextColor || getGroupTextColor(finalGroupColor);
 
   const snapBadge = hasSnapshot 
     ? '<span class="link-collector-toast-snapshot has-snap">已截图</span>'
