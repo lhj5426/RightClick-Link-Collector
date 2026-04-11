@@ -1476,6 +1476,7 @@ document.addEventListener("DOMContentLoaded", () => {
   
   // 导出链接 (异步支持快照)
   async function exportLinks(format, options = { snapshots: true, selected: false }) {
+    try {
     let linksToExport = allLinks;
     
     if (options.selected) {
@@ -1556,6 +1557,7 @@ document.addEventListener("DOMContentLoaded", () => {
       docParts.push("</body></html>");
       downloadBlob(docParts.join("\n"), "links.doc", "application/msword");
     }
+    } catch(e) { alert("导出出错: " + e.stack); }
   }
   
   function downloadBlob(content, filename, mime) {
@@ -1771,7 +1773,7 @@ document.addEventListener("DOMContentLoaded", () => {
       
       let tagsDisplay = '';
       if (link.tags && link.tags.length > 0) {
-        const spanHTML = link.tags.map(t => `<span style="display:inline-block; padding:2px 8px; border-radius:12px; font-size:12px; font-weight:500; color:#fff; text-shadow:0 1px 1px rgba(0,0,0,0.3); background:${t.color}; margin-right:6px;">${escapeHtml(t.text)}</span>`).join('');
+        const spanHTML = link.tags.map(t => `<span style="display:inline-block; padding:2px 8px; border-radius:12px; font-size:12px; font-weight:500; color:${t.textColor || '#ffffff'}; text-shadow:0 1px 1px rgba(0,0,0,0.3); background:${t.color}; margin-right:6px;">${escapeHtml(t.text)}</span>`).join('');
         tagsDisplay = `<div class="tab-tags" style="margin-top:6px;">${spanHTML}</div>`;
       }
       
@@ -2477,8 +2479,8 @@ document.addEventListener("DOMContentLoaded", () => {
                   <div class="tab-group">
                     <div class="group-header" onclick="window.toggleGroup(this)">
                       <span class="group-header-title">
-                        <span style="display:inline-block;width:16px;height:16px;background:${group.color};border-radius:3px;margin-right:8px;vertical-align:middle;"></span>
-                        ${group.name} 【未访问 ${groupLinks.length} 个链接】
+                        <span style="display:inline-block;width:16px;height:16px;background:\${group.color};border-radius:3px;margin-right:8px;vertical-align:middle;"></span>
+                        \${group.name} 【未访问 \${groupLinks.length} 个链接】
                       </span>
                       <span class="toggle-icon">▾</span>
                     </div>
