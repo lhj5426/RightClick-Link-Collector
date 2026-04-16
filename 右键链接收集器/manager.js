@@ -35,6 +35,10 @@ document.addEventListener("DOMContentLoaded", () => {
   const newGroupTextColor = document.getElementById("newGroupTextColor");
   const addGroupBtn = document.getElementById("addGroupBtn");
   const autoCloseTabBtn = document.getElementById("autoCloseTabBtn");
+  const groupJumpBtn = document.getElementById("groupJumpBtn");
+  const groupJumpCount = document.getElementById("groupJumpCount");
+  const groupJumpDropdown = document.getElementById("groupJumpDropdown");
+  const groupJumpFloating = document.getElementById("groupJumpFloating");
   
   // 工具函数
   function escapeHtml(s) {
@@ -249,6 +253,62 @@ document.addEventListener("DOMContentLoaded", () => {
       groupCountDisplay.textContent = `当前有${allGroups.length}个分组`;
     }
   }
+
+  let groupJumpTargets = [];
+
+  function updateFloatingToolPositions() {
+    if (!groupJumpFloating) return;
+    if (window.innerWidth <= 768) {
+      groupJumpFloating.style.left = "12px";
+      groupJumpFloating.style.top = "";
+      groupJumpFloating.style.bottom = "20px";
+      return;
+    }
+
+    groupJumpFloating.style.left = "20px";
+    groupJumpFloating.style.top = "";
+    groupJumpFloating.style.bottom = "24px";
+  }
+  
+  function refreshGroupJumpOptions() {
+    if (!groupJumpBtn || !groupJumpDropdown) return;
+    
+    const sections = Array.from(document.querySelectorAll("#linksList .group-section"));
+    groupJumpTargets = [];
+    groupJumpDropdown.innerHTML = "";
+    if (groupJumpCount) {
+      groupJumpCount.textContent = `(${sections.length})`;
+    }
+    
+    sections.forEach((section, index) => {
+      const header = section.querySelector(".group-header");
+      if (!header) return;
+      
+      const labelEl = header.querySelector(".group-header-left span");
+      const rawText = labelEl ? labelEl.textContent : header.textContent;
+      const cleanText = (rawText || `分组 ${index + 1}`).replace(/\s+/g, " ").trim();
+      
+      const item = document.createElement("a");
+      item.href = "#";
+      item.dataset.index = String(index);
+      item.textContent = `${index + 1}. ${cleanText}`;
+      groupJumpDropdown.appendChild(item);
+      
+      groupJumpTargets.push(section);
+    });
+    
+    if (groupJumpTargets.length === 0) {
+      const emptyItem = document.createElement("a");
+      emptyItem.href = "#";
+      emptyItem.textContent = "暂无可跳转分组";
+      emptyItem.style.pointerEvents = "none";
+      emptyItem.style.opacity = "0.6";
+      groupJumpDropdown.appendChild(emptyItem);
+    }
+    
+    groupJumpBtn.disabled = groupJumpTargets.length === 0;
+    updateFloatingToolPositions();
+  }
   
   // 渲染链接
   function renderLinks() {
@@ -367,6 +427,8 @@ document.addEventListener("DOMContentLoaded", () => {
     if (visible.length === 0) {
       linksList.innerHTML = "";
       emptyState.classList.remove("hidden");
+      refreshGroupJumpOptions();
+      updateFloatingToolPositions();
       return;
     }
     
@@ -386,6 +448,9 @@ document.addEventListener("DOMContentLoaded", () => {
     } else if (currentView === "unvisited") {
       renderUnvisitedView(visible, visited);
     }
+    
+    refreshGroupJumpOptions();
+    updateFloatingToolPositions();
   }
   
   // 渲染全部视图
@@ -502,8 +567,6 @@ document.addEventListener("DOMContentLoaded", () => {
     // 显示各个分组
     allGroups.forEach(group => {
       const groupLinks = links.filter(link => link.groupId === group.id);
-      
-      if (groupLinks.length === 0) return;
       
       const section = document.createElement("div");
       section.className = "group-section";
@@ -1305,6 +1368,41 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   }
   
+  if (groupJumpBtn && groupJumpDropdown) {
+    groupJumpBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      groupJumpDropdown.classList.toggle("show");
+    });
+
+    groupJumpDropdown.addEventListener("click", (e) => {
+      const item = e.target.closest("a[data-index]");
+      if (!item) return;
+      e.preventDefault();
+      
+      const selectedIndex = Number(item.dataset.index);
+      if (!Number.isInteger(selectedIndex) || selectedIndex < 0 || selectedIndex >= groupJumpTargets.length) {
+        return;
+      }
+      
+      const section = groupJumpTargets[selectedIndex];
+      const header = section.querySelector(".group-header");
+      if (!header) return;
+      
+      if (header.classList.contains("collapsed")) {
+        header.classList.remove("collapsed");
+        const content = section.querySelector(".group-content");
+        if (content) content.classList.remove("collapsed");
+      }
+      
+      section.scrollIntoView({ block: "start" });
+      header.classList.add("jump-highlight");
+      setTimeout(() => header.classList.remove("jump-highlight"), 500);
+      groupJumpDropdown.classList.remove("show");
+    });
+  }
+
+  window.addEventListener("resize", updateFloatingToolPositions);
+  
   // 折叠/展开所有分组
   toggleGroupsBtn.addEventListener("click", () => {
     groupsCollapsed = !groupsCollapsed;
@@ -1386,7 +1484,7 @@ document.addEventListener("DOMContentLoaded", () => {
   });
   
   // 保存HTML下拉菜单事件
-  const htmlDropdown = document.querySelector(".dropdown-content");
+  const htmlDropdown = document.querySelector(".toolbar .dropdown-content");
   
   document.getElementById("exportAllHtmlSnap")?.addEventListener("click", (e) => { 
     e.preventDefault(); 
@@ -1412,13 +1510,17 @@ document.addEventListener("DOMContentLoaded", () => {
   // 保存HTML默认按钮 (点击展开)
   saveHtmlBtn.addEventListener("click", (e) => {
     e.stopPropagation();
+    if (groupJumpDropdown) groupJumpDropdown.classList.remove("show");
     htmlDropdown.classList.toggle("show");
   });
 
   // 点击页面其他地方关闭下拉菜单
   window.addEventListener("click", (e) => {
-    if (htmlDropdown.classList.contains("show") && !e.target.closest(".dropdown")) {
+    if (htmlDropdown.classList.contains("show") && !e.target.closest(".toolbar .dropdown")) {
       htmlDropdown.classList.remove("show");
+    }
+    if (groupJumpDropdown && groupJumpDropdown.classList.contains("show") && !e.target.closest(".group-jump-dropdown")) {
+      groupJumpDropdown.classList.remove("show");
     }
   });
   
