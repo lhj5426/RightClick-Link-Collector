@@ -1,0 +1,32 @@
+﻿
+ProcessName          MainWindowTitle                                           
+-----------          ---------------                                           
+Antigravity          右键链接收集器 - Antigravity - manager.css                       
+antigravity_tools    Antigravity Tools                                         
+ApplicationFrameHost 设置                                                        
+chrome               淫叔馆-兴趣使然 录制 低画质 低帧率 美少女 HS鉴赏 封面索引 CTRL+F 搜索 - Cent Browser
+clash-verge          Clash Verge                                               
+cmd                  C:\Windows\system32\cmd.exe                               
+ConEmu64             Cmder                                                     
+dandanplay           弹弹play                                                    
+dopus                Q:\看或者要AI翻译的\原图模式水平旋转数据增强过_[45]纵向图多_[AI生成] (同人CG集) [Aka...
+Everything           Everything1.5 非正式版 [管理员]                                  
+IDMan                Internet Download Manager 6.42                            
+iMe                  ‎淫叔馆 – (371466)                                           
+keymanager           Key Manager 1.15                                          
+msedge               为什么那么多人喜欢用百度盘分享超大文件| 茶馆 - 南+ South Plus 和另外 4 个页面 - 个人 ...
+nekoray              [Admin] NekoRay (3.26-2023-12-09) [Shadowsocks] 🇬🇧 19...
+nekoray              [Admin] NekoRay (3.26-2023-12-09) [Shadowsocks] 🇩🇪 17...
+nekoray              [Admin] NekoRay (3.26-2023-12-09) [Shadowsocks] 🇰🇷 11...
+nekoray              [Admin] NekoRay (3.26-2023-12-09) [Shadowsocks] 🇨🇱 24...
+nekoray              [Admin] NekoRay (3.26-2023-12-09) [Shadowsocks] 🇺🇲 26...
+nekoray              [Admin] NekoRay (3.26-2023-12-09) [Shadowsocks] 🇺🇲 03...
+phpstudy_pro         phpstudy_pro                                              
+python               Hmogai_260411_X-AnyLabeling                               
+SystemSettings       设置                                                        
+Telegram             ‎新加坡 – (2381624)                                          
+Telegram             ‎微 丰 – (4108)                                             
+TextInputHost        Microsoft Text Input Application                          
+呼来唤去AI魔改版            呼来唤去 - 运行中                                                
+
+

@@ -70,7 +70,7 @@ const DB = {
   },
 
   // 删除快照
-  async deleteSnapshot(id) {
+async deleteSnapshot(id) {
     try {
       const db = await this.init();
       return new Promise((resolve, reject) => {
@@ -83,6 +83,31 @@ const DB = {
       });
     } catch (err) {
       console.error('DB deleteSnapshot error:', err);
+      return false;
+    }
+  },
+
+  // 批量删除快照，使用单个事务减少大批量删除时的卡顿
+  async deleteSnapshots(ids) {
+    try {
+      const normalizedIds = Array.from(new Set((ids || []).map(id => String(id))));
+      if (normalizedIds.length === 0) return true;
+
+      const db = await this.init();
+      return new Promise((resolve, reject) => {
+        const transaction = db.transaction([STORE_NAME], 'readwrite');
+        const store = transaction.objectStore(STORE_NAME);
+
+        transaction.oncomplete = () => resolve(true);
+        transaction.onerror = (event) => reject(event.target.error);
+        transaction.onabort = (event) => reject(event.target.error || new Error('deleteSnapshots aborted'));
+
+        normalizedIds.forEach(id => {
+          store.delete(id);
+        });
+      });
+    } catch (err) {
+      console.error('DB deleteSnapshots error:', err);
       return false;
     }
   },

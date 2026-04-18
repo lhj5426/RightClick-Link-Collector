@@ -1,4 +1,4 @@
-/**
+﻿/**
  * 多链接收集器 - 管理页面脚本
  */
 
@@ -6,12 +6,21 @@ let allLinks = [];
 let allGroups = [];
 let themeMode = "auto";
 let currentView = localStorage.getItem('currentView') || "all";
+let currentDisplayMode = localStorage.getItem('currentDisplayMode') || "card";
 let groupsCollapsed = localStorage.getItem('groupsCollapsed') === 'true';
 let sortOrder = "oldest"; // "oldest" 旧→新（默认），"newest" 新→旧
 let unvisitedMode = "aggregate"; // "aggregate" 聚合模式, "inGroup" 组内模式
 let currentSearchKeywords = []; // 当前搜索的多关键字
+let selectedLinkIds = new Set();
 const STORAGE_KEY = 'tabSaverVisitedLinks';
 const DEFAULT_GROUPS = [];
+
+if (currentView === "thumbGrid") {
+  currentView = "all";
+  currentDisplayMode = "thumb";
+  localStorage.setItem('currentView', currentView);
+  localStorage.setItem('currentDisplayMode', currentDisplayMode);
+}
 
 document.addEventListener("DOMContentLoaded", () => {
   // 元素
@@ -25,6 +34,7 @@ document.addEventListener("DOMContentLoaded", () => {
   const clearAllBtn = document.getElementById("clearAllBtn");
   const themeBtn = document.getElementById("themeBtn");
   const viewTabs = document.querySelectorAll(".view-tab");
+  const thumbModeBtn = document.querySelector('.view-tab[data-view="thumbGrid"]');
   const toggleGroupsBtn = document.getElementById("toggleGroupsBtn");
   const manageGroupsBtn = document.getElementById("manageGroupsBtn");
   const groupModal = document.getElementById("groupModal");
@@ -46,6 +56,170 @@ document.addEventListener("DOMContentLoaded", () => {
     const div = document.createElement('div');
     div.textContent = s;
     return div.innerHTML;
+  }
+
+  function isThumbnailMode() {
+    return currentDisplayMode === "thumb";
+  }
+
+  function getDisplayModeLinks(links) {
+    return isThumbnailMode()
+      ? links.filter(link => link.hasSnapshot)
+      : links;
+  }
+
+  function renderLinkCollection(container, links, visited) {
+    const displayLinks = getDisplayModeLinks(links);
+    if (displayLinks.length === 0) return 0;
+
+    if (isThumbnailMode()) {
+      container.classList.add("thumb-grid-host");
+    } else {
+      container.classList.remove("thumb-grid-host");
+    }
+
+    displayLinks.forEach((link, index) => {
+      const item = isThumbnailMode()
+        ? createThumbnailCard(link, index + 1, visited)
+        : createLinkCard(link, index + 1, visited);
+      container.appendChild(item);
+    });
+
+    return displayLinks.length;
+  }
+
+  function getRenderedLinkIds(scope = document) {
+    return Array.from(scope.querySelectorAll('.link-card[data-link-id], .thumb-card[data-link-id]'))
+      .map(el => Number(el.dataset.linkId))
+      .filter(id => Number.isInteger(id));
+  }
+
+  function isLinkSelected(linkId) {
+    return selectedLinkIds.has(Number(linkId));
+  }
+
+  function setLinkSelected(linkId, selected) {
+    const id = Number(linkId);
+    if (!Number.isInteger(id)) return;
+    if (selected) {
+      selectedLinkIds.add(id);
+    } else {
+      selectedLinkIds.delete(id);
+    }
+  }
+
+  function toggleLinkSelected(linkId) {
+    setLinkSelected(linkId, !isLinkSelected(linkId));
+  }
+
+  function syncSelectionUI() {
+    document.querySelectorAll('.link-card[data-link-id]').forEach(card => {
+      const linkId = Number(card.dataset.linkId);
+      const checkbox = card.querySelector('.link-checkbox');
+      if (checkbox) checkbox.checked = isLinkSelected(linkId);
+    });
+
+    document.querySelectorAll('.thumb-card[data-link-id]').forEach(card => {
+      const linkId = Number(card.dataset.linkId);
+      card.classList.toggle('thumb-card-selected', isLinkSelected(linkId));
+      const checkbox = card.querySelector('.thumb-select-checkbox');
+      if (checkbox) checkbox.checked = isLinkSelected(linkId);
+    });
+
+    document.querySelectorAll('.group-content').forEach(content => {
+      updateGroupHeaderCheckbox(content);
+    });
+  }
+
+  function syncViewTabState() {
+    viewTabs.forEach(t => t.classList.remove("active"));
+
+    if (currentView === "byDate") {
+      byDateBtn?.classList.add("active");
+    } else {
+      viewTabs.forEach(t => {
+        if (t.dataset.view === currentView) {
+          t.classList.add("active");
+        }
+      });
+    }
+
+    if (thumbModeBtn) {
+      thumbModeBtn.classList.toggle("active", isThumbnailMode());
+      thumbModeBtn.textContent = isThumbnailMode() ? "卡片模式" : "缩略图模式";
+      thumbModeBtn.title = isThumbnailMode() ? "点击切换为卡片模式" : "点击切换为缩略图模式";
+    }
+  }
+
+  function normalizeTagUrl(text) {
+    const value = String(text || '').trim();
+    if (!value || /\s/.test(value)) return null;
+
+    try {
+      const parsed = new URL(value);
+      if (parsed.protocol === 'http:' || parsed.protocol === 'https:') {
+        return parsed.href;
+      }
+    } catch {}
+
+    const bareUrlPattern = /^(?:(?:www\.)?(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}|localhost|(?:\d{1,3}\.){3}\d{1,3})(?::\d{2,5})?(?:[/?#][^\s]*)?$/i;
+    if (!bareUrlPattern.test(value)) return null;
+
+    const hostPart = value.split(/[/?#]/, 1)[0].split(':', 1)[0].toLowerCase();
+    const hostLabels = hostPart.split('.').filter(Boolean);
+    const lastLabel = hostLabels.length ? hostLabels[hostLabels.length - 1] : '';
+    const allowedBareUrlTlds = new Set([
+      'com', 'net', 'org', 'cn', 'com.cn', 'net.cn', 'org.cn',
+      'cc', 'tv', 'me', 'top', 'vip', 'xyz', 'club', 'site',
+      'online', 'shop', 'store', 'app', 'dev', 'io', 'ai', 'co',
+      'info', 'pro', 'wiki', 'mobi', 'name', 'biz', 'moe'
+    ]);
+
+    if (hostPart !== 'localhost' && !/^(?:\d{1,3}\.){3}\d{1,3}$/.test(hostPart)) {
+      if (hostLabels.length < 2) return null;
+      const lastTwoLabels = hostLabels.slice(-2).join('.');
+      if (!allowedBareUrlTlds.has(lastLabel) && !allowedBareUrlTlds.has(lastTwoLabels)) {
+        return null;
+      }
+    }
+
+    try {
+      return new URL(`https://${value}`).href;
+    } catch {
+      return null;
+    }
+  }
+
+  function isTagUrl(text) {
+    return !!normalizeTagUrl(text);
+  }
+
+  function getTagActionTitle(tagText) {
+    return isTagUrl(tagText)
+      ? '点击直接打开此网址'
+      : '点击过滤带有此标签的条目';
+  }
+
+  function handleTagAction(tagText) {
+    const value = String(tagText || '').trim();
+    if (!value) return;
+    const normalizedUrl = normalizeTagUrl(value);
+    if (normalizedUrl) {
+      window.open(normalizedUrl, '_blank', 'noopener,noreferrer');
+      return;
+    }
+    filterByKeyword(value);
+  }
+
+  function bindTagAction(tagEl) {
+    if (!tagEl) return;
+    const tagText = tagEl.dataset.tagText || tagEl.textContent;
+    tagEl.title = getTagActionTitle(tagText);
+    tagEl.addEventListener('click', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      handleTagAction(e.currentTarget.dataset.tagText || e.currentTarget.textContent);
+    });
   }
   
   // 搜索关键字高亮
@@ -98,9 +272,8 @@ document.addEventListener("DOMContentLoaded", () => {
     selectAllCheckbox.addEventListener('click', (e) => {
       e.stopPropagation(); // 防止折叠
       const isChecked = e.target.checked;
-      const checkboxes = content.querySelectorAll('.link-checkbox');
-      checkboxes.forEach(cb => {
-        cb.checked = isChecked;
+      getRenderedLinkIds(content).forEach(linkId => {
+        setLinkSelected(linkId, isChecked);
       });
       updateBatchToolbar();
     });
@@ -115,11 +288,11 @@ document.addEventListener("DOMContentLoaded", () => {
     const selectAllCheckbox = header.querySelector('.group-select-all');
     if (!selectAllCheckbox) return;
     
-    const checkboxes = content.querySelectorAll('.link-checkbox');
-    const checkedCount = Array.from(checkboxes).filter(cb => cb.checked).length;
+    const linkIds = getRenderedLinkIds(content);
+    const checkedCount = linkIds.filter(linkId => isLinkSelected(linkId)).length;
     
-    selectAllCheckbox.checked = checkedCount === checkboxes.length && checkboxes.length > 0;
-    selectAllCheckbox.indeterminate = checkedCount > 0 && checkedCount < checkboxes.length;
+    selectAllCheckbox.checked = checkedCount === linkIds.length && linkIds.length > 0;
+    selectAllCheckbox.indeterminate = checkedCount > 0 && checkedCount < linkIds.length;
   }
   
   // 获取访问记录
@@ -309,6 +482,171 @@ document.addEventListener("DOMContentLoaded", () => {
     groupJumpBtn.disabled = groupJumpTargets.length === 0;
     updateFloatingToolPositions();
   }
+
+  function getLinkGroupInfo(link) {
+    if (link.groupId) {
+      const group = allGroups.find(g => g.id === link.groupId);
+      if (group) {
+        return {
+          id: group.id,
+          name: group.name,
+          color: group.color,
+          textColor: group.textColor || '#FFFFFF'
+        };
+      }
+    }
+
+    return {
+      id: null,
+      name: '无分组',
+      color: '#9E9E9E',
+      textColor: '#FFFFFF'
+    };
+  }
+
+  function getLinkVisitInfo(link, visitedMap = null) {
+    const visited = visitedMap || getVisitedLinks();
+    const visitData = visited[link.url];
+    const visitCount = visitData ? visitData.count : 0;
+    return {
+      visitCount,
+      lastVisited: visitData ? new Date(visitData.lastVisited).toLocaleString('zh-CN') : '',
+      visitClass: visitCount > 0 ? `visited-${((visitCount - 1) % 7) + 1}` : ''
+    };
+  }
+
+  function createSnapshotMarker(clickPoint) {
+    if (!clickPoint) return null;
+    const { x, y, viewportW, viewportH } = clickPoint;
+    if (!viewportW || !viewportH) return null;
+
+    const marker = document.createElement('div');
+    marker.className = 'snapshot-marker';
+    marker.style.left = `${(x / viewportW) * 100}%`;
+    marker.style.top = `${(y / viewportH) * 100}%`;
+    return marker;
+  }
+
+  function getPreviewTagsHtml(tags) {
+    if (!Array.isArray(tags) || tags.length === 0) {
+      return '<span class="preview-empty-text">暂无标签</span>';
+    }
+
+    return tags.map(tag =>
+      `<span class="link-tag" style="background: ${tag.color}; color: ${tag.textColor || '#ffffff'};" data-tag-text="${escapeHtml(tag.text)}" title="${getTagActionTitle(tag.text)}">${escapeHtml(tag.text)}</span>`
+    ).join('');
+  }
+
+  function buildPreviewInfoHtml(link, index, visitedMap) {
+    const groupInfo = getLinkGroupInfo(link);
+    const visitInfo = getLinkVisitInfo(link, visitedMap);
+    const source = link.page || '未知';
+    const duplicateCount = duplicateUrlMap && duplicateUrlMap[link.url] ? duplicateUrlMap[link.url].length : 1;
+    const duplicateText = duplicateCount > 1 ? `重复 ${duplicateCount} 条` : '无重复';
+    const descHtml = link.desc
+      ? `<div class="preview-desc">${escapeHtml(link.desc)}</div>`
+      : '';
+
+    return `
+      <div class="preview-info-panel">
+        <div class="preview-headline">
+          <span class="preview-order">#${index || ''}</span>
+          <span class="group-badge" style="background: ${groupInfo.color}; color: ${groupInfo.textColor};">${escapeHtml(groupInfo.name)}</span>
+          <span class="preview-meta-pill">${escapeHtml(link.date || '未记录时间')}</span>
+          <span class="preview-meta-pill">${duplicateText}</span>
+        </div>
+        <div class="preview-title">${escapeHtml(title)}</div>
+        <a href="${escapeHtml(link.url)}" class="preview-url" target="_blank" rel="noopener noreferrer" data-url="${escapeHtml(link.url)}">${escapeHtml(link.url)}</a>
+        <div class="preview-info-grid">
+          <div class="preview-info-item">
+            <span class="preview-info-label">分组</span>
+            <span>${escapeHtml(groupInfo.name)}</span>
+          </div>
+          <div class="preview-info-item">
+            <span class="preview-info-label">来源</span>
+            <span>${escapeHtml(source)}</span>
+          </div>
+          <div class="preview-info-item">
+            <span class="preview-info-label">访问次数</span>
+            <span class="${visitInfo.visitClass ? `link-visits ${visitInfo.visitClass}` : ''}">${visitInfo.visitCount > 0 ? `已访问 ${visitInfo.visitCount} 次` : '未访问'}</span>
+          </div>
+          <div class="preview-info-item">
+            <span class="preview-info-label">上次访问</span>
+            <span>${escapeHtml(visitInfo.lastVisited || '暂无记录')}</span>
+          </div>
+        </div>
+        <div class="preview-tags-row">${getPreviewTagsHtml(link.tags)}</div>
+        ${descHtml}
+        <div class="preview-actions">
+          <a href="${escapeHtml(link.url)}" class="preview-action-btn preview-action-primary" target="_blank" rel="noopener noreferrer" data-url="${escapeHtml(link.url)}">打开网址</a>
+          <button type="button" class="preview-action-btn" data-action="copy-url">复制网址</button>
+          <button type="button" class="preview-action-btn" data-action="edit-tags">标签</button>
+          <button type="button" class="preview-action-btn" data-action="move-group">移动</button>
+        </div>
+      </div>
+    `;
+  }
+
+  function buildPreviewCardDetailHtml(link, index, visitedMap) {
+    const groupInfo = getLinkGroupInfo(link);
+    const visitInfo = getLinkVisitInfo(link, visitedMap);
+
+    const visitHtml = visitInfo.visitCount > 0
+      ? `<div class="link-meta">
+          <span class="link-visits ${visitInfo.visitClass}">访问 ${visitInfo.visitCount} 次</span>
+          <span class="link-date">上次访问: ${escapeHtml(visitInfo.lastVisited)}</span>
+        </div>`
+      : '';
+
+    const groupBadge = `<span class="group-badge" style="background: ${groupInfo.color}; color: ${groupInfo.textColor}; cursor: pointer;" data-group-name="${escapeHtml(groupInfo.name)}" title="点击过滤此分组">${escapeHtml(groupInfo.name)}</span>`;
+
+    let duplicateBadge = '';
+    if (duplicateUrlMap && duplicateUrlMap[link.url] && duplicateUrlMap[link.url].length > 1) {
+      const duplicateIds = duplicateUrlMap[link.url];
+      const currentPos = duplicateIds.indexOf(link.id);
+      const otherIndices = [];
+      duplicateIds.forEach((id, pos) => {
+        if (pos !== currentPos) {
+          const linkIndex = allLinks.findIndex(l => l.id === id);
+          otherIndices.push(linkIndex + 1);
+        }
+      });
+      const otherStr = otherIndices.sort((a, b) => a - b).join('、');
+      duplicateBadge = `<span class="duplicate-badge" data-duplicate-url="${escapeHtml(link.url)}" title="点击过滤显示所有重复条目">🔗 与${otherStr}重复</span>`;
+    }
+
+    const tagsHtml = Array.isArray(link.tags) && link.tags.length > 0
+      ? `<div class="link-tags">${link.tags.map(tag =>
+          `<span class="link-tag" style="background: ${tag.color}; color: ${tag.textColor || '#ffffff'};" data-tag-text="${escapeHtml(tag.text)}" title="${getTagActionTitle(tag.text)}">${escapeHtml(tag.text)}</span>`
+        ).join('')}</div>`
+      : '';
+
+    const descHtml = link.desc
+      ? `<div class="link-description" title="${escapeHtml(link.desc)}">${escapeHtml(link.desc)}</div>`
+      : '';
+
+    return `
+      <div class="preview-card-wrap">
+        <div class="link-card preview-detail-card" data-link-id="${link.id}">
+          <div class="link-index">${index || ''}</div>
+          <div class="link-content">
+            <a href="${escapeHtml(link.url)}" class="link-url preview-detail-link" target="_blank" rel="noopener noreferrer" data-url="${escapeHtml(link.url)}">${escapeHtml(link.url)}</a>
+            <div class="link-source">来源: ${escapeHtml(link.title || link.page || '未知')} ${groupBadge} ${duplicateBadge}</div>
+            <div class="link-date">保存时间: ${escapeHtml(link.date || '')}</div>
+            ${descHtml}
+            ${tagsHtml}
+            ${visitHtml}
+            <div class="link-actions">
+              <button class="link-btn link-btn-note" data-id="${link.id}" data-action="edit-card-tags">🏷️ 标签</button>
+              <button class="link-btn link-btn-move" data-id="${link.id}" data-action="move-card-group">📁 移动</button>
+              <button class="link-btn link-btn-copy" data-url="${escapeHtml(link.url)}" data-action="copy-card-url">📋 复制</button>
+              <button class="link-btn link-btn-delete" data-id="${link.id}" data-action="delete-card-link">🗑️ 删除</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    `;
+  }
   
   // 渲染链接
   function renderLinks() {
@@ -431,9 +769,18 @@ document.addEventListener("DOMContentLoaded", () => {
       updateFloatingToolPositions();
       return;
     }
+
+    if (isThumbnailMode() && getDisplayModeLinks(visible).length === 0) {
+      emptyState.classList.add("hidden");
+      linksList.innerHTML = '<div class="empty-state"><p>当前筛选结果里没有可用快照</p></div>';
+      refreshGroupJumpOptions();
+      updateFloatingToolPositions();
+      return;
+    }
     
     emptyState.classList.add("hidden");
     linksList.innerHTML = "";
+    linksList.classList.remove("thumb-grid-host");
     
     if (currentView === "all") {
       renderAllView(visible, visited);
@@ -455,10 +802,12 @@ document.addEventListener("DOMContentLoaded", () => {
   
   // 渲染全部视图
   function renderAllView(links, visited) {
-    links.forEach((link, index) => {
-      const card = createLinkCard(link, index + 1, visited);
-      linksList.appendChild(card);
-    });
+    if (isThumbnailMode()) {
+      linksList.classList.add("thumb-grid-host");
+    } else {
+      linksList.classList.remove("thumb-grid-host");
+    }
+    renderLinkCollection(linksList, links, visited);
   }
   
   // 渲染按域名分组视图
@@ -471,15 +820,24 @@ document.addEventListener("DOMContentLoaded", () => {
     });
     
     Object.keys(groups).sort().forEach(domain => {
+      const sortedLinks = groups[domain].sort((a, b) => {
+        const timeA = new Date(a.date || 0).getTime();
+        const timeB = new Date(b.date || 0).getTime();
+        return sortOrder === "oldest" ? timeA - timeB : timeB - timeA;
+      });
+
       const section = document.createElement("div");
       section.className = "group-section";
       
+      const displayLinks = getDisplayModeLinks(sortedLinks);
+      if (displayLinks.length === 0) return;
+
       const header = document.createElement("div");
       header.className = "group-header";
       header.innerHTML = `
         <div class="group-header-left">
           <input type="checkbox" class="group-select-all" title="全选/取消全选">
-          <span>${domain} (${groups[domain].length})</span>
+          <span>${domain} (${displayLinks.length})</span>
         </div>
         <span class="group-toggle">▾</span>
       `;
@@ -492,18 +850,9 @@ document.addEventListener("DOMContentLoaded", () => {
       
       const content = document.createElement("div");
       content.className = "group-content";
+      if (isThumbnailMode()) content.classList.add("thumb-grid-host");
       
-      // 组内按时间排序
-      const sortedLinks = groups[domain].sort((a, b) => {
-        const timeA = new Date(a.date || 0).getTime();
-        const timeB = new Date(b.date || 0).getTime();
-        return sortOrder === "oldest" ? timeA - timeB : timeB - timeA;
-      });
-      
-      sortedLinks.forEach((link, index) => {
-        const card = createLinkCard(link, index + 1, visited);
-        content.appendChild(card);
-      });
+      renderLinkCollection(content, sortedLinks, visited);
       
       section.appendChild(header);
       section.appendChild(content);
@@ -520,57 +869,65 @@ document.addEventListener("DOMContentLoaded", () => {
     const globalLinks = links.filter(link => !link.groupId);
     
     if (globalLinks.length > 0) {
-      const section = document.createElement("div");
-      section.className = "group-section";
-      
-      const header = document.createElement("div");
-      header.className = "group-header";
-      header.innerHTML = `
-        <div class="group-header-left">
-          <input type="checkbox" class="group-select-all" title="全选/取消全选">
-          <span>
-            <span class="group-color" style="background: #9E9E9E; display: inline-block; width: 16px; height: 16px; border-radius: 3px; margin-right: 8px; vertical-align: middle;"></span>
-            全局（无分组） (${globalLinks.length})
-          </span>
-        </div>
-        <span class="group-toggle">▾</span>
-      `;
-      header.onclick = (e) => {
-        if (e.target.classList.contains('group-select-all')) return;
-        header.classList.toggle("collapsed");
-        content.classList.toggle("collapsed");
-      };
-      
-      const content = document.createElement("div");
-      content.className = "group-content";
-      
-      // 组内按时间排序
       const sortedLinks = globalLinks.sort((a, b) => {
         const timeA = new Date(a.date || 0).getTime();
         const timeB = new Date(b.date || 0).getTime();
         return sortOrder === "oldest" ? timeA - timeB : timeB - timeA;
       });
+
+      const section = document.createElement("div");
+      section.className = "group-section";
       
-      sortedLinks.forEach((link, index) => {
-        const card = createLinkCard(link, index + 1, visited);
-        content.appendChild(card);
-      });
-      
-      section.appendChild(header);
-      section.appendChild(content);
-      linksList.appendChild(section);
-      
-      // 设置全选逻辑
-      setupGroupSelectAll(header, content);
+      const displayLinks = getDisplayModeLinks(sortedLinks);
+      if (displayLinks.length > 0) {
+        const header = document.createElement("div");
+        header.className = "group-header";
+        header.innerHTML = `
+          <div class="group-header-left">
+            <input type="checkbox" class="group-select-all" title="全选/取消全选">
+            <span>
+              <span class="group-color" style="background: #9E9E9E; display: inline-block; width: 16px; height: 16px; border-radius: 3px; margin-right: 8px; vertical-align: middle;"></span>
+              全局（无分组） (${displayLinks.length})
+            </span>
+          </div>
+          <span class="group-toggle">▾</span>
+        `;
+        header.onclick = (e) => {
+          if (e.target.classList.contains('group-select-all')) return;
+          header.classList.toggle("collapsed");
+          content.classList.toggle("collapsed");
+        };
+        
+        const content = document.createElement("div");
+        content.className = "group-content";
+        if (isThumbnailMode()) content.classList.add("thumb-grid-host");
+        
+        renderLinkCollection(content, sortedLinks, visited);
+        
+        section.appendChild(header);
+        section.appendChild(content);
+        linksList.appendChild(section);
+        
+        // 设置全选逻辑
+        setupGroupSelectAll(header, content);
+      }
     }
     
     // 显示各个分组
     allGroups.forEach(group => {
       const groupLinks = links.filter(link => link.groupId === group.id);
+      const sortedLinks = groupLinks.sort((a, b) => {
+        const timeA = new Date(a.date || 0).getTime();
+        const timeB = new Date(b.date || 0).getTime();
+        return sortOrder === "oldest" ? timeA - timeB : timeB - timeA;
+      });
       
       const section = document.createElement("div");
       section.className = "group-section";
       
+      const displayLinks = getDisplayModeLinks(sortedLinks);
+      if (displayLinks.length === 0) return;
+
       const header = document.createElement("div");
       header.className = "group-header";
       header.innerHTML = `
@@ -578,7 +935,7 @@ document.addEventListener("DOMContentLoaded", () => {
           <input type="checkbox" class="group-select-all" title="全选/取消全选">
           <span>
             <span class="group-color" style="background: ${group.color}; display: inline-block; width: 16px; height: 16px; border-radius: 3px; margin-right: 8px; vertical-align: middle;"></span>
-            ${group.name} (${groupLinks.length})
+            ${group.name} (${displayLinks.length})
           </span>
         </div>
         <span class="group-toggle">▾</span>
@@ -591,18 +948,9 @@ document.addEventListener("DOMContentLoaded", () => {
       
       const content = document.createElement("div");
       content.className = "group-content";
+      if (isThumbnailMode()) content.classList.add("thumb-grid-host");
       
-      // 组内按时间排序
-      const sortedLinks = groupLinks.sort((a, b) => {
-        const timeA = new Date(a.date || 0).getTime();
-        const timeB = new Date(b.date || 0).getTime();
-        return sortOrder === "oldest" ? timeA - timeB : timeB - timeA;
-      });
-      
-      sortedLinks.forEach((link, index) => {
-        const card = createLinkCard(link, index + 1, visited);
-        content.appendChild(card);
-      });
+      renderLinkCollection(content, sortedLinks, visited);
       
       section.appendChild(header);
       section.appendChild(content);
@@ -624,10 +972,7 @@ document.addEventListener("DOMContentLoaded", () => {
         return;
       }
       
-      unvisited.forEach((link, index) => {
-        const card = createLinkCard(link, index + 1, visited);
-        linksList.appendChild(card);
-      });
+      renderAllView(unvisited, visited);
     } else {
       // 组内模式：根据当前视图类型，在分组内只显示未访问的链接
       renderUnvisitedInGroupView(links, visited);
@@ -684,15 +1029,24 @@ document.addEventListener("DOMContentLoaded", () => {
     
     sortedDates.forEach(dateKey => {
       const group = dateGroups[dateKey];
+      const sortedLinks = group.links.sort((a, b) => {
+        const timeA = new Date(a.date || 0).getTime();
+        const timeB = new Date(b.date || 0).getTime();
+        return sortOrder === "oldest" ? timeA - timeB : timeB - timeA;
+      });
+
       const section = document.createElement("div");
       section.className = "group-section";
       
+      const displayLinks = getDisplayModeLinks(sortedLinks);
+      if (displayLinks.length === 0) return;
+
       const header = document.createElement("div");
       header.className = "group-header";
       header.innerHTML = `
         <div class="group-header-left">
           <input type="checkbox" class="group-select-all" title="全选/取消全选">
-          <span>📅 ${group.display} (${group.links.length})</span>
+          <span>📅 ${group.display} (${displayLinks.length})</span>
         </div>
         <span class="group-toggle">▾</span>
       `;
@@ -704,18 +1058,9 @@ document.addEventListener("DOMContentLoaded", () => {
       
       const content = document.createElement("div");
       content.className = "group-content";
+      if (isThumbnailMode()) content.classList.add("thumb-grid-host");
       
-      // 组内按时间排序
-      const sortedLinks = group.links.sort((a, b) => {
-        const timeA = new Date(a.date || 0).getTime();
-        const timeB = new Date(b.date || 0).getTime();
-        return sortOrder === "oldest" ? timeA - timeB : timeB - timeA;
-      });
-      
-      sortedLinks.forEach((link, index) => {
-        const card = createLinkCard(link, index + 1, visited);
-        content.appendChild(card);
-      });
+      renderLinkCollection(content, sortedLinks, visited);
       
       section.appendChild(header);
       section.appendChild(content);
@@ -751,16 +1096,24 @@ document.addEventListener("DOMContentLoaded", () => {
       sortedTags.forEach(tagText => {
         const tagInfo = tagMap.get(tagText);
         const groupLinks = tagInfo.links;
+        const sortedGroupLinks = groupLinks.sort((a, b) => {
+          const timeA = new Date(a.date || 0).getTime();
+          const timeB = new Date(b.date || 0).getTime();
+          return sortOrder === "oldest" ? timeA - timeB : timeB - timeA;
+        });
         
         const section = document.createElement("div");
         section.className = "group-section";
         
+        const displayLinks = getDisplayModeLinks(sortedGroupLinks);
+        if (displayLinks.length === 0) return;
+
         const header = document.createElement("div");
         header.className = "group-header";
         header.innerHTML = `
           <div class="group-header-left">
             <input type="checkbox" class="group-select-all" title="全选/取消全选">
-            <span style="display:inline-flex; align-items:center;">🏷️ <span class="link-tag" style="background:${tagInfo.color}; color:${tagInfo.textColor}; margin-left:8px;">${escapeHtml(tagText)}</span> (${groupLinks.length})</span>
+            <span style="display:inline-flex; align-items:center;">🏷️ <span class="link-tag" style="background:${tagInfo.color}; color:${tagInfo.textColor}; margin-left:8px;">${escapeHtml(tagText)}</span> (${displayLinks.length})</span>
           </div>
           <span class="group-toggle">▾</span>
         `;
@@ -772,66 +1125,58 @@ document.addEventListener("DOMContentLoaded", () => {
         
         const content = document.createElement("div");
         content.className = "group-content";
+        if (isThumbnailMode()) content.classList.add("thumb-grid-host");
         
-        // 组内排序
-        const sortedGroupLinks = groupLinks.sort((a, b) => {
-          const timeA = new Date(a.date || 0).getTime();
-          const timeB = new Date(b.date || 0).getTime();
-          return sortOrder === "oldest" ? timeA - timeB : timeB - timeA;
-        });
-
-        sortedGroupLinks.forEach((link, index) => {
-          const card = createLinkCard(link, index + 1, visited);
-          content.appendChild(card);
-        });
+        renderLinkCollection(content, sortedGroupLinks, visited);
         
         section.appendChild(header);
         section.appendChild(content);
         linksList.appendChild(section);
         
         setupGroupSelectAll(header, content);
+        bindTagAction(header.querySelector('.link-tag'));
       });
     }
     
     if (withoutTags.length > 0) {
-      const section = document.createElement("div");
-      section.className = "group-section";
-      
-      const header = document.createElement("div");
-      header.className = "group-header";
-      header.innerHTML = `
-        <div class="group-header-left">
-          <input type="checkbox" class="group-select-all" title="全选/取消全选">
-          <span>⚪ 无标签 (${withoutTags.length})</span>
-        </div>
-        <span class="group-toggle">▾</span>
-      `;
-      header.onclick = (e) => {
-        if (e.target.classList.contains('group-select-all')) return;
-        header.classList.toggle("collapsed");
-        content.classList.toggle("collapsed");
-      };
-      
-      const content = document.createElement("div");
-      content.className = "group-content";
-      
-      // 组内排序
       const sortedWithoutLinks = withoutTags.sort((a, b) => {
         const timeA = new Date(a.date || 0).getTime();
         const timeB = new Date(b.date || 0).getTime();
         return sortOrder === "oldest" ? timeA - timeB : timeB - timeA;
       });
 
-      sortedWithoutLinks.forEach((link, index) => {
-        const card = createLinkCard(link, index + 1, visited);
-        content.appendChild(card);
-      });
+      const section = document.createElement("div");
+      section.className = "group-section";
       
-      section.appendChild(header);
-      section.appendChild(content);
-      linksList.appendChild(section);
-      
-      setupGroupSelectAll(header, content);
+      const displayLinks = getDisplayModeLinks(sortedWithoutLinks);
+      if (displayLinks.length > 0) {
+        const header = document.createElement("div");
+        header.className = "group-header";
+        header.innerHTML = `
+          <div class="group-header-left">
+            <input type="checkbox" class="group-select-all" title="全选/取消全选">
+            <span>⚪ 无标签 (${displayLinks.length})</span>
+          </div>
+          <span class="group-toggle">▾</span>
+        `;
+        header.onclick = (e) => {
+          if (e.target.classList.contains('group-select-all')) return;
+          header.classList.toggle("collapsed");
+          content.classList.toggle("collapsed");
+        };
+        
+        const content = document.createElement("div");
+        content.className = "group-content";
+        if (isThumbnailMode()) content.classList.add("thumb-grid-host");
+        
+        renderLinkCollection(content, sortedWithoutLinks, visited);
+        
+        section.appendChild(header);
+        section.appendChild(content);
+        linksList.appendChild(section);
+        
+        setupGroupSelectAll(header, content);
+      }
     }
     
     if (sortedTags.length === 0 && withoutTags.length === 0) {
@@ -840,6 +1185,130 @@ document.addEventListener("DOMContentLoaded", () => {
   }
   
   // 创建链接卡片
+  function createThumbnailCard(link, index, visited) {
+    const card = document.createElement("article");
+    card.className = "thumb-card";
+    card.dataset.linkId = link.id;
+
+    const groupInfo = getLinkGroupInfo(link);
+    const title = link.title || link.page || link.url || '未命名链接';
+    const tagList = Array.isArray(link.tags) ? link.tags : [];
+    let duplicateBadge = '';
+    if (duplicateUrlMap && duplicateUrlMap[link.url] && duplicateUrlMap[link.url].length > 1) {
+      const duplicateIds = duplicateUrlMap[link.url];
+      const currentPos = duplicateIds.indexOf(link.id);
+      const otherIndices = [];
+      duplicateIds.forEach((id, pos) => {
+        if (pos !== currentPos) {
+          const linkIndex = allLinks.findIndex(l => l.id === id);
+          otherIndices.push(linkIndex + 1);
+        }
+      });
+      const duplicateText = otherIndices.length > 0
+        ? `重复 ${otherIndices.sort((a, b) => a - b).join('、')}`
+        : `重复 ${duplicateIds.length - 1}`;
+      duplicateBadge = `<span class="thumb-duplicate-badge" data-duplicate-url="${escapeHtml(link.url)}" title="点击过滤显示所有重复条目">${duplicateText}</span>`;
+    }
+    const visibleTags = tagList.map(tag =>
+      `<span class="thumb-tag" style="background: ${tag.color}; color: ${tag.textColor || '#ffffff'};" data-tag-text="${escapeHtml(tag.text)}" title="${isTagUrl(tag.text) ? '点击直接打开此网址' : '点击过滤带有此标签的条目'}">${escapeHtml(tag.text)}</span>`
+    ).join('');
+    const mediaBorderColor = groupInfo.color || '#9E9E9E';
+    const overlayHtml = `
+      <div class="thumb-overlay-top">
+        <div class="thumb-top-row">
+          <span class="thumb-index-badge">#${index}</span>
+          <span class="thumb-group-badge" style="background: ${groupInfo.color}; color: ${groupInfo.textColor};" data-group-name="${escapeHtml(groupInfo.name)}" title="点击过滤此分组">${escapeHtml(groupInfo.name)}</span>
+          ${duplicateBadge}
+        </div>
+        ${tagList.length > 0 ? `<div class="thumb-tags">${visibleTags}</div>` : ''}
+      </div>
+    `;
+
+    card.innerHTML = `
+      <label class="thumb-select-toggle" title="选择此缩略图">
+        <input type="checkbox" class="link-checkbox thumb-select-checkbox" data-id="${link.id}" ${isLinkSelected(link.id) ? 'checked' : ''}>
+      </label>
+      <button type="button" class="thumb-media" id="thumb-${link.id}" style="--thumb-border-color: ${mediaBorderColor};" title="查看大图和详细信息">
+        ${overlayHtml}
+        <div class="thumb-empty">🖼️</div>
+      </button>
+    `;
+
+    const media = card.querySelector(`#thumb-${link.id}`);
+    const checkbox = card.querySelector('.thumb-select-checkbox');
+    const bindThumbnailOverlayInteractions = (container) => {
+      container.querySelectorAll('.thumb-tag').forEach(tagEl => {
+        bindTagAction(tagEl);
+      });
+
+      container.querySelectorAll('.thumb-group-badge[data-group-name]').forEach(badgeEl => {
+        badgeEl.addEventListener('click', (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          const groupName = e.currentTarget.dataset.groupName;
+          if (groupName) {
+            filterByKeyword(groupName);
+          }
+        });
+      });
+
+      container.querySelectorAll('.thumb-duplicate-badge[data-duplicate-url]').forEach(badgeEl => {
+        badgeEl.addEventListener('click', (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          const dupUrl = e.currentTarget.dataset.duplicateUrl;
+          if (dupUrl) {
+            filterByKeyword(dupUrl);
+          }
+        });
+      });
+    };
+
+    bindThumbnailOverlayInteractions(media);
+
+    if (checkbox) {
+      checkbox.addEventListener('click', (e) => {
+        e.stopPropagation();
+      });
+      checkbox.addEventListener('change', () => {
+        setLinkSelected(link.id, checkbox.checked);
+        updateBatchToolbar();
+      });
+    }
+
+    DB.getSnapshot(link.id).then(dataUrl => {
+      if (!dataUrl || !dataUrl.startsWith('data:image')) {
+        console.warn('缩略图快照缺失或无效:', link.id, link.url);
+        media.innerHTML = `${overlayHtml}<div class="thumb-empty thumb-empty-missing">快照缺失</div>`;
+        bindThumbnailOverlayInteractions(media);
+        return;
+      }
+
+      media.innerHTML = `${overlayHtml}<img src="${dataUrl}" alt="快照缩略图">`;
+      bindThumbnailOverlayInteractions(media);
+      const marker = createSnapshotMarker(link.clickPoint);
+      if (marker) {
+        media.appendChild(marker);
+      }
+
+      media.addEventListener('click', (e) => {
+        e.stopPropagation();
+        showPreviewModalV2({
+          mode: 'detail',
+          dataUrl,
+          clickPoint: link.clickPoint,
+          link,
+          index,
+          visited
+        });
+      });
+    }).catch(err => {
+      console.error("加载缩略图快照失败:", err);
+    });
+
+    return card;
+  }
+
   function createLinkCard(link, index, visited) {
     const card = document.createElement("div");
     card.className = "link-card";
@@ -909,7 +1378,7 @@ document.addEventListener("DOMContentLoaded", () => {
       : '';
     
     card.innerHTML = `
-      <input type="checkbox" class="link-checkbox" data-id="${link.id}" style="margin-right: 10px; cursor: pointer;">
+      <input type="checkbox" class="link-checkbox" data-id="${link.id}" style="margin-right: 10px; cursor: pointer;" ${isLinkSelected(link.id) ? 'checked' : ''}>
       <div class="link-index">${index}</div>
       <div class="link-content">
         <a href="${escapeHtml(link.url)}" class="link-url" target="_blank" data-url="${escapeHtml(link.url)}">${highlightText(link.url, currentSearchKeywords)}</a>
@@ -947,15 +1416,9 @@ document.addEventListener("DOMContentLoaded", () => {
             snapshotEl.appendChild(img);
 
             // 如果有点击位置信息，添加标记
-            if (link.clickPoint) {
-              const { x, y, viewportW, viewportH } = link.clickPoint;
-              if (viewportW && viewportH) {
-                const marker = document.createElement('div');
-                marker.className = 'snapshot-marker';
-                marker.style.left = `${(x / viewportW) * 100}%`;
-                marker.style.top = `${(y / viewportH) * 100}%`;
-                snapshotEl.appendChild(marker);
-              }
+            const marker = createSnapshotMarker(link.clickPoint);
+            if (marker) {
+              snapshotEl.appendChild(marker);
             }
           }
         }
@@ -967,11 +1430,8 @@ document.addEventListener("DOMContentLoaded", () => {
     // 复选框事件
     const checkbox = card.querySelector('.link-checkbox');
     checkbox.addEventListener('change', () => {
+      setLinkSelected(link.id, checkbox.checked);
       updateBatchToolbar();
-      const content = card.closest('.group-content');
-      if (content) {
-        updateGroupHeaderCheckbox(content);
-      }
     });
     
     // 重复标签点击事件 - 过滤显示所有重复条目
@@ -988,14 +1448,7 @@ document.addEventListener("DOMContentLoaded", () => {
     }
     // 自定义标签胶囊点击事件 - 过滤显示该标签
     card.querySelectorAll('.link-tag').forEach(tagEl => {
-      tagEl.addEventListener('click', (e) => {
-        e.preventDefault();
-        e.stopPropagation();
-        const tagText = e.currentTarget.dataset.tagText;
-        if (tagText) {
-          filterByKeyword(tagText);
-        }
-      });
+      bindTagAction(tagEl);
     });
     
     // 分组胶囊点击事件 - 过滤显示该分组
@@ -1070,17 +1523,17 @@ document.addEventListener("DOMContentLoaded", () => {
     dialog.className = 'modal show';
     dialog.style.zIndex = '10000';
     dialog.innerHTML = `
-      <div class="modal-content" style="max-width: 500px; z-index: 10001;">
+      <div class="modal-content" style="width: min(860px, 92vw); max-width: min(860px, 92vw); max-height: 88vh; z-index: 10001;">
         <div class="modal-header">
           <h2>编辑标签</h2>
           <button class="modal-close" id="tagDialogClose">✕</button>
         </div>
-        <div class="modal-body">
+        <div class="modal-body" style="max-height: calc(88vh - 90px); overflow-y: auto;">
           <p style="margin-bottom: 15px; color: var(--text-muted); font-size: 14px; word-break: break-all;">
-            ${escapeHtml(link.url.substring(0, 80))}${link.url.length > 80 ? '...' : ''}
+            ${escapeHtml(link.url)}
           </p>
           
-          <div id="tagsContainer" style="min-height: 50px; padding: 10px; border: 2px solid var(--border); border-radius: 6px; background: var(--bg); display: flex; flex-wrap: wrap; gap: 4px;">
+          <div id="tagsContainer" style="min-height: 88px; padding: 10px; border: 2px solid var(--border); border-radius: 6px; background: var(--bg); display: flex; flex-direction: column; gap: 8px;">
             <!-- 标签将会被渲染在这里 -->
           </div>
           
@@ -1099,7 +1552,7 @@ document.addEventListener("DOMContentLoaded", () => {
           
           <div style="margin-top: 15px; border-top: 1px solid var(--border); padding-top: 10px;">
             <div style="font-size: 13px; color: var(--text-muted); margin-bottom: 8px;">标签列表 (点击快速添加)：</div>
-            <div id="historicalTagsContainer" style="display: flex; flex-wrap: wrap; gap: 6px; max-height: 100px; overflow-y: auto;">
+            <div id="historicalTagsContainer" style="display: flex; flex-direction: column; gap: 8px; max-height: 180px; overflow-y: auto;">
               <!-- 历史标签渲染在此处 -->
             </div>
           </div>
@@ -1120,6 +1573,7 @@ document.addEventListener("DOMContentLoaded", () => {
     const colorInput = dialog.querySelector('#tagColorInput');
     const textColorInput = dialog.querySelector('#tagTextColorInput');
     const historicalContainer = dialog.querySelector('#historicalTagsContainer');
+    textInput.maxLength = 2048;
     
     // 收集所有已存在的标签以供快速选择
     const allExistingTags = [];
@@ -1134,6 +1588,78 @@ document.addEventListener("DOMContentLoaded", () => {
             });
         }
     });
+
+    function createTagCapsule(tag, options = {}) {
+      const { editable = false, historical = false, index = -1 } = options;
+      const span = document.createElement('span');
+      const textC = tag.textColor || '#ffffff';
+      const isUrl = isTagUrl(tag.text);
+
+      span.className = `edit-tag-capsule ${isUrl ? 'edit-tag-capsule-url' : 'edit-tag-capsule-text'}`;
+      span.style.background = tag.color;
+      span.style.color = textC;
+      span.style.cursor = 'pointer';
+      span.title = editable ? '点击重新编辑标签' : '点击直接添加此标签';
+
+      if (historical) {
+        span.style.opacity = '0.7';
+        span.onmouseenter = () => span.style.opacity = '1';
+        span.onmouseleave = () => span.style.opacity = '0.7';
+      }
+
+      span.innerHTML = `
+        <span class="edit-tag-main">${escapeHtml(tag.text)}</span>
+        ${editable ? `<span class="edit-tag-delete" data-index="${index}">✕</span>` : ''}
+      `;
+
+      span.addEventListener('click', (e) => {
+        if (editable) {
+          if (e.target.classList.contains('edit-tag-delete')) return;
+          textInput.value = tag.text;
+          colorInput.value = tag.color;
+          textColorInput.value = textC;
+          textInput.focus();
+          return;
+        }
+
+        const existingIndex = currentTags.findIndex(t => t.text === tag.text);
+        if (existingIndex >= 0) {
+          currentTags[existingIndex].color = tag.color;
+          currentTags[existingIndex].textColor = textC;
+        } else {
+          currentTags.push({ text: tag.text, color: tag.color, textColor: textC });
+        }
+        renderEditTags();
+      });
+
+      return span;
+    }
+
+    function renderTagSection(containerEl, title, tags, options = {}) {
+      if (!tags.length) return;
+
+      const section = document.createElement('div');
+      section.className = 'edit-tag-section';
+
+      const titleEl = document.createElement('div');
+      titleEl.className = 'edit-tag-section-title';
+      titleEl.textContent = `${title} (${tags.length})`;
+
+      const body = document.createElement('div');
+      body.className = 'edit-tag-section-body';
+
+      tags.forEach(tag => {
+        const capsule = createTagCapsule(tag, {
+          ...options,
+          index: options.editable ? currentTags.indexOf(tag) : -1
+        });
+        body.appendChild(capsule);
+      });
+
+      section.appendChild(titleEl);
+      section.appendChild(body);
+      containerEl.appendChild(section);
+    }
     
     function renderEditTags() {
       container.innerHTML = '';
@@ -1141,6 +1667,22 @@ document.addEventListener("DOMContentLoaded", () => {
         container.innerHTML = '<span style="color:var(--text-muted); font-size:13px; font-style:italic;">暂无标签</span>';
         return;
       }
+      const textTags = currentTags.filter(tag => !isTagUrl(tag.text));
+      const urlTags = currentTags.filter(tag => isTagUrl(tag.text));
+
+      renderTagSection(container, '文字标签', textTags, { editable: true });
+      renderTagSection(container, '网址标签', urlTags, { editable: true });
+      
+      container.querySelectorAll('.edit-tag-delete').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          const idx = parseInt(e.currentTarget.dataset.index);
+          currentTags.splice(idx, 1);
+          renderEditTags();
+        });
+      });
+      return;
+
       currentTags.forEach((tag, index) => {
         const span = document.createElement('span');
         span.className = 'edit-tag-capsule';
@@ -1179,6 +1721,14 @@ document.addEventListener("DOMContentLoaded", () => {
     if (allExistingTags.length === 0) {
         historicalContainer.innerHTML = '<span style="font-size: 12px; color: var(--text-muted); font-style: italic;">暂无可用标签</span>';
     } else {
+        historicalContainer.innerHTML = '';
+        const historicalTextTags = allExistingTags.filter(tag => !isTagUrl(tag.text));
+        const historicalUrlTags = allExistingTags.filter(tag => isTagUrl(tag.text));
+
+        renderTagSection(historicalContainer, '文字标签', historicalTextTags, { historical: true });
+        renderTagSection(historicalContainer, '网址标签', historicalUrlTags, { historical: true });
+
+        if (false) {
         allExistingTags.forEach(tag => {
             const span = document.createElement('span');
             span.className = 'edit-tag-capsule';
@@ -1205,6 +1755,7 @@ document.addEventListener("DOMContentLoaded", () => {
             });
             historicalContainer.appendChild(span);
         });
+        }
     }
 
     textInput.focus();
@@ -1341,17 +1892,23 @@ document.addEventListener("DOMContentLoaded", () => {
       if (tab.id === "manageGroupsBtn" || tab.id === "toggleGroupsBtn" || tab.id === "byDateBtn") {
         return; // 不切换视图
       }
-      
-      viewTabs.forEach(t => t.classList.remove("active"));
-      tab.classList.add("active");
-      
+
+      if (tab.dataset.view === "thumbGrid") {
+        currentDisplayMode = isThumbnailMode() ? "card" : "thumb";
+        localStorage.setItem('currentDisplayMode', currentDisplayMode);
+        syncViewTabState();
+        renderLinks();
+        return;
+      }
+
       // 保存之前的视图（用于组内未访问模式）
       if (currentView !== "unvisited") {
         localStorage.setItem('previousView', currentView);
       }
-      
+
       currentView = tab.dataset.view;
       localStorage.setItem('currentView', currentView);
+      syncViewTabState();
       renderLinks();
     });
   });
@@ -1360,10 +1917,12 @@ document.addEventListener("DOMContentLoaded", () => {
   const byDateBtn = document.getElementById("byDateBtn");
   if (byDateBtn) {
     byDateBtn.addEventListener("click", () => {
-      viewTabs.forEach(t => t.classList.remove("active"));
-      byDateBtn.classList.add("active");
+      if (currentView !== "unvisited") {
+        localStorage.setItem('previousView', currentView);
+      }
       currentView = "byDate";
       localStorage.setItem('currentView', currentView);
+      syncViewTabState();
       renderLinks();
     });
   }
@@ -1432,32 +1991,34 @@ document.addEventListener("DOMContentLoaded", () => {
   });
   
   // 删除链接
-  function deleteLink(id) {
+  async function deleteLink(id) {
     if (!confirm("确定要删除这个链接吗？")) return;
-    
-    // 删除对应的快照
-    DB.deleteSnapshot(id);
     
     chrome.storage.local.get({ links: [] }, (res) => {
       const links = (res.links || []).filter(l => l.id !== id);
       chrome.storage.local.set({ links }, () => {
         allLinks = links;
+        selectedLinkIds.delete(id);
         renderLinks();
         updateCount();
         updateBadge();
+        DB.deleteSnapshot(id).then(() => {
+          if (isThumbnailMode()) renderLinks();
+        });
       });
     });
   }
   
   // 清空全部
-  clearAllBtn.addEventListener("click", () => {
+  clearAllBtn.addEventListener("click", async () => {
     if (!confirm(`确定要删除所有 ${allLinks.length} 个链接吗？`)) return;
     
     // 清空所有快照
-    DB.clearAllSnapshots();
+    await DB.clearAllSnapshots();
     
     chrome.storage.local.set({ links: [] }, () => {
       allLinks = [];
+      selectedLinkIds.clear();
       renderLinks();
       updateCount();
       updateBadge();
@@ -1543,13 +2104,8 @@ document.addEventListener("DOMContentLoaded", () => {
   if (batchSelectAllCheckbox) {
     batchSelectAllCheckbox.addEventListener('change', () => {
       const isChecked = batchSelectAllCheckbox.checked;
-      document.querySelectorAll('.link-checkbox').forEach(cb => {
-        cb.checked = isChecked;
-      });
-      // 同时更新所有分组的全选复选框状态
-      document.querySelectorAll('.group-select-all').forEach(cb => {
-        cb.checked = isChecked;
-        cb.indeterminate = false;
+      getRenderedLinkIds().forEach(linkId => {
+        setLinkSelected(linkId, isChecked);
       });
       updateBatchToolbar();
     });
@@ -1582,9 +2138,7 @@ document.addEventListener("DOMContentLoaded", () => {
     let linksToExport = allLinks;
     
     if (options.selected) {
-      const selectedIds = Array.from(document.querySelectorAll('.link-checkbox:checked')).map(cb => {
-        return parseInt(cb.dataset.id);
-      });
+      const selectedIds = getSelectedLinkIds();
       
       if (selectedIds.length === 0) {
         alert("请先选择要导出的链接。");
@@ -2016,13 +2570,18 @@ document.addEventListener("DOMContentLoaded", () => {
         </div>`;
     });
 
-    const ALL_TABS_JSON = JSON.stringify(links.map(l => ({ 
+    const ALL_TABS_JSON = JSON.stringify(links.map(l => ({
       id: l.id,
-      url: l.url, 
-      title: l.title || l.page || '', 
-      date: l.date, 
-      groupId: l.groupId, 
+      url: l.url,
+      title: l.title || l.page || '',
+      date: l.date,
+      groupId: l.groupId,
       note: l.note || '',
+      tags: Array.isArray(l.tags) ? l.tags.map(t => ({
+        text: t.text,
+        color: t.color,
+        textColor: t.textColor || '#ffffff'
+      })) : [],
       clickPoint: l.clickPoint
     })));
     const ALL_SNAPSHOTS_JSON = includeSnapshots ? JSON.stringify(snapshots) : '{}';
@@ -2086,8 +2645,8 @@ document.addEventListener("DOMContentLoaded", () => {
         .empty-state { text-align: center; padding: 40px; color: #666; }
         
         /* Snapshot styles in Exported HTML */
-        .tab-snapshot { width: 120px; height: 75px; border-radius: 4px; overflow: hidden; background: #eee; border: 1px solid #ddd; flex-shrink: 0; cursor: pointer; position: relative; }
-        .tab-snapshot img { width: 100%; height: 100%; object-fit: cover; display: block; }
+        .tab-snapshot { width: 120px; height: 75px; border-radius: 4px; overflow: hidden; background: #fff; border: 1px solid #ddd; flex-shrink: 0; cursor: pointer; position: relative; display: flex; align-items: center; justify-content: center; }
+        .tab-snapshot img { width: 100%; height: 100%; object-fit: contain; object-position: center; display: block; }
         .tab-snapshot .snapshot-marker { position: absolute; width: 8px; height: 8px; background: #ff4444; border-radius: 50%; transform: translate(-50%, -50%); border: 1px solid white; box-shadow: 0 0 3px rgba(0,0,0,0.5); pointer-events: none; }
         
         .preview-modal { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.8); display: none; justify-content: center; align-items: center; z-index: 10000; }
@@ -2415,54 +2974,44 @@ document.addEventListener("DOMContentLoaded", () => {
         };
 
         function generateTabEntryInternal(link, i) {
-          const saveTime = link.date ? \`<div class="tab-save-time">保存时间: \${link.date}</div>\` : '';
+          const saveTime = link.date ? '<div class="tab-save-time">????: ' + link.date + '</div>' : '';
           
           let tagsDisplay = '';
           if (link.tags && link.tags.length > 0) {
-            const spanHTML = link.tags.map(t => \`<span onclick="event.stopPropagation(); window.searchTabs(this.textContent.trim())" title="点击过滤此标签" style="display:inline-block; padding:2px 8px; border-radius:12px; font-size:12px; font-weight:500; color:\${t.textColor || '#ffffff'}; text-shadow:0 1px 1px rgba(0,0,0,0.3); background:\${t.color}; margin-right:6px; cursor:pointer;">\${t.text}</span>\`).join('');
-            tagsDisplay = \`<div class="tab-tags" style="margin-top:6px;">\${spanHTML}</div>\`;
+            const spanHTML = link.tags.map(t => '<span onclick="event.stopPropagation(); window.searchTabs(this.textContent.trim())" title="???????" style="display:inline-block; padding:2px 8px; border-radius:12px; font-size:12px; font-weight:500; color:' + (t.textColor || '#ffffff') + '; text-shadow:0 1px 1px rgba(0,0,0,0.3); background:' + t.color + '; margin-right:6px; cursor:pointer;">' + t.text + '</span>').join('');
+            tagsDisplay = '<div class="tab-tags" style="margin-top:6px;">' + spanHTML + '</div>';
           }
           
-          // 快照显示
           let snapshotHTML = '';
           const snapshotData = ALL_SNAPSHOTS_DATA[link.id];
-          if (${includeSnapshots} && snapshotData) {
+          if (snapshotData) {
             let markerHTML = '';
             if (link.clickPoint) {
               const { x, y, viewportW, viewportH } = link.clickPoint;
               if (viewportW && viewportH) {
                 const left = (x / viewportW) * 100;
                 const top = (y / viewportH) * 100;
-                markerHTML = \`<div class="snapshot-marker" style="left: \${left}%; top: \${top}%;"></div>\`;
+                markerHTML = '<div class="snapshot-marker" style="left: ' + left + '%; top: ' + top + '%;"></div>';
               }
             }
-            snapshotHTML = \`
-              <div class="tab-snapshot" data-id="\${link.id}" onclick="window.showPreview(this)">
-                <img src="\${snapshotData}" alt="快照">
-                \${markerHTML}
-              </div>
-            \`;
+            snapshotHTML = '<div class="tab-snapshot" data-id="' + link.id + '" onclick="window.showPreview(this)"><img src="' + snapshotData + '" alt="??">' + markerHTML + '</div>';
           }
 
-          return \`<div class="tab-entry" data-url="\${link.url}" data-title="\${link.title || ''}" data-tags="\${link.tags ? link.tags.map(t=>t.text).join(' ') : ''}">
-            <span class="tab-index">\${i+1}</span>
-            <input type="checkbox" class="tab-checkbox" onclick="window.updateSelectionState()">
-            <div class="tab-content">
-              <a href="\${link.url}" class="tab-title" target="_blank" onmousedown="window.handleLinkClick(event)">\${link.url}</a>
-              <div class="tab-url-container">
-                <span class="tab-url-toggle" onclick="window.toggleUrl(this)">▶ 显示来源</span>
-                <div class="tab-url collapsed">来源: \${link.title || '未知'}</div>
-              </div>
-              \${saveTime}
-              \${tagsDisplay}
-              <div class="visit-info"><span class="visit-time"></span><span class="visit-count"></span></div>
-              <div class="tab-markers">
-                <label class="marker-checkbox marker-downloaded"><input type="checkbox" class="marker-downloaded-cb" onchange="window.saveMarker(this, 'downloaded')"><span>✓ 已下载</span></label>
-                <label class="marker-checkbox marker-skipped"><input type="checkbox" class="marker-skipped-cb" onchange="window.saveMarker(this, 'skipped')"><span>✗ 未下载</span></label>
-              </div>
-            </div>
-            \${snapshotHTML}
-          </div>\`;
+          return '<div class="tab-entry" data-url="' + link.url + '" data-title="' + (link.title || '') + '" data-tags="' + (link.tags ? link.tags.map(t => t.text).join(' ') : '') + '">' +
+            '<span class="tab-index">' + (i + 1) + '</span>' +
+            '<input type="checkbox" class="tab-checkbox" onclick="window.updateSelectionState()">' +
+            '<div class="tab-content">' +
+            '<a href="' + link.url + '" class="tab-title" target="_blank" onmousedown="window.handleLinkClick(event)">' + link.url + '</a>' +
+            '<div class="tab-url-container">' +
+            '<span class="tab-url-toggle" onclick="window.toggleUrl(this)">? ????</span>' +
+            '<div class="tab-url collapsed">??: ' + (link.title || '??') + '</div>' +
+            '</div>' +
+            saveTime + tagsDisplay +
+            '<div class="visit-info"><span class="visit-time"></span><span class="visit-count"></span></div>' +
+            '<div class="tab-markers">' +
+            '<label class="marker-checkbox marker-downloaded"><input type="checkbox" class="marker-downloaded-cb" onchange="window.saveMarker(this, &quot;downloaded&quot;)"><span>? ???</span></label>' +
+            '<label class="marker-checkbox marker-skipped"><input type="checkbox" class="marker-skipped-cb" onchange="window.saveMarker(this, &quot;skipped&quot;)"><span>? ???</span></label>' +
+            '</div></div>' + snapshotHTML + '</div>';
         }
 
         function regenerateUnvisitedView() {
@@ -2677,25 +3226,23 @@ document.addEventListener("DOMContentLoaded", () => {
           sortedTags.forEach(tagText => {
             const tagInfo = tagMap.get(tagText);
             const links = tagInfo.links;
-            html += \`
-              <div class="tab-group">
-                <div class="group-header" onclick="window.toggleGroup(this)">
-                  <span class="group-header-title">🏷️ <span onclick="event.stopPropagation(); window.searchTabs(this.textContent.trim())" title="点击搜索此标签" style="display:inline-block; padding:2px 6px; border-radius:10px; background:\${tagInfo.color}; color:\${tagInfo.textColor}; font-size:12px; cursor:pointer;">\${tagText}</span> 【共有\${links.length}个链接】</span>
-                  <span class="toggle-icon">▾</span>
-                </div>
-                <div class="group-content">\${links.map((link, i) => generateTabEntryInternal(link, i)).join('')}</div>
-              </div>\`;
+            html += '<div class="tab-group">' +
+              '<div class="group-header" onclick="window.toggleGroup(this)">' +
+              '<span class="group-header-title">??? <span onclick="event.stopPropagation(); window.searchTabs(this.textContent.trim())" title="???????" style="display:inline-block; padding:2px 6px; border-radius:10px; background:' + tagInfo.color + '; color:' + tagInfo.textColor + '; font-size:12px; cursor:pointer;">' + tagText + '</span> ???' + links.length + '????</span>' +
+              '<span class="toggle-icon">?</span>' +
+              '</div>' +
+              '<div class="group-content">' + links.map((link, i) => generateTabEntryInternal(link, i)).join('') + '</div>' +
+              '</div>';
           });
           
           if (withoutTags.length > 0) {
-            html += \`
-              <div class="tab-group">
-                <div class="group-header" onclick="window.toggleGroup(this)">
-                  <span class="group-header-title">⚪ 无标签 【共有\${withoutTags.length}个链接】</span>
-                  <span class="toggle-icon">▾</span>
-                </div>
-                <div class="group-content">\${withoutTags.map((link, i) => generateTabEntryInternal(link, i)).join('')}</div>
-              </div>\`;
+            html += '<div class="tab-group">' +
+              '<div class="group-header" onclick="window.toggleGroup(this)">' +
+              '<span class="group-header-title">??? ??? ???' + withoutTags.length + '????</span>' +
+              '<span class="toggle-icon">?</span>' +
+              '</div>' +
+              '<div class="group-content">' + withoutTags.map((link, i) => generateTabEntryInternal(link, i)).join('') + '</div>' +
+              '</div>';
           }
 
           container.innerHTML = html;
@@ -3007,7 +3554,7 @@ document.addEventListener("DOMContentLoaded", () => {
   }
   
   // 删除分组
-  function deleteGroup(groupId) {
+  async function deleteGroup(groupId) {
     const linkCount = allLinks.filter(link => link.groupId === groupId).length;
     
     if (linkCount > 0) {
@@ -3015,9 +3562,8 @@ document.addEventListener("DOMContentLoaded", () => {
         return;
       }
       
-      // 删除关联的快照
       const linksToDelete = allLinks.filter(link => link.groupId === groupId);
-      linksToDelete.forEach(link => DB.deleteSnapshot(link.id));
+      const snapshotIdsToDelete = linksToDelete.map(link => link.id);
       
       // 直接从 allLinks 中删除该分组的所有链接
       allLinks = allLinks.filter(link => link.groupId !== groupId);
@@ -3032,6 +3578,9 @@ document.addEventListener("DOMContentLoaded", () => {
           updateGroupCount();
           updateCount(); // 更新总计数
           updateBadge(); // 更新工具栏图标计数
+          DB.deleteSnapshots(snapshotIdsToDelete).then(() => {
+            if (isThumbnailMode()) renderLinks();
+          });
         });
       });
     } else {
@@ -3063,16 +3612,17 @@ document.addEventListener("DOMContentLoaded", () => {
   
   // 更新批量操作工具栏
   function updateBatchToolbar() {
-    const checkedBoxes = document.querySelectorAll('.link-checkbox:checked');
-    const allBoxes = document.querySelectorAll('.link-checkbox');
+    syncSelectionUI();
+    const renderedIds = getRenderedLinkIds();
+    const checkedCount = renderedIds.filter(linkId => isLinkSelected(linkId)).length;
     const batchToolbar = document.getElementById('batchToolbar');
     const batchCount = document.getElementById('batchCount');
     const selectAllCb = document.getElementById('batchSelectAllCheckbox');
     
-    if (checkedBoxes.length > 0) {
+    if (checkedCount > 0) {
       batchModeActive = true;
       batchToolbar.style.display = 'flex';
-      batchCount.textContent = `已选择 ${checkedBoxes.length} 个`;
+      batchCount.textContent = `已选择 ${checkedCount} 个`;
     } else if (batchModeActive) {
       // 批量模式激活后，即使取消全选也保持工具栏显示
       batchToolbar.style.display = 'flex';
@@ -3083,13 +3633,13 @@ document.addEventListener("DOMContentLoaded", () => {
     
     // 更新全选复选框状态
     if (selectAllCb) {
-      if (allBoxes.length === 0) {
+      if (renderedIds.length === 0) {
         selectAllCb.checked = false;
         selectAllCb.indeterminate = false;
-      } else if (checkedBoxes.length === allBoxes.length) {
+      } else if (checkedCount === renderedIds.length) {
         selectAllCb.checked = true;
         selectAllCb.indeterminate = false;
-      } else if (checkedBoxes.length > 0) {
+      } else if (checkedCount > 0) {
         selectAllCb.checked = false;
         selectAllCb.indeterminate = true;
       } else {
@@ -3101,8 +3651,7 @@ document.addEventListener("DOMContentLoaded", () => {
   
   // 获取选中的链接ID
   function getSelectedLinkIds() {
-    const checkboxes = document.querySelectorAll('.link-checkbox:checked');
-    return Array.from(checkboxes).map(cb => parseInt(cb.dataset.id));
+    return Array.from(selectedLinkIds);
   }
   
   // 批量移动
@@ -3182,10 +3731,9 @@ document.addEventListener("DOMContentLoaded", () => {
         
         // 保存到存储
         chrome.storage.local.set({ links: allLinks }, () => {
+          selectedLinkIds.clear();
           renderLinks();
           dialog.remove();
-          // 清空选择
-          document.querySelectorAll('.link-checkbox').forEach(cb => cb.checked = false);
           updateBatchToolbar();
         });
       });
@@ -3200,29 +3748,29 @@ document.addEventListener("DOMContentLoaded", () => {
   }
   
   // 批量删除
-  function batchDeleteLinks() {
+  async function batchDeleteLinks() {
     const selectedIds = getSelectedLinkIds();
     if (selectedIds.length === 0) return;
     
     if (confirm(`确定要删除这 ${selectedIds.length} 个链接吗？`)) {
-      // 删除关联的快照
-      selectedIds.forEach(id => DB.deleteSnapshot(id));
-      
       // 直接删除，不调用deleteLink避免重复确认
       allLinks = allLinks.filter(l => !selectedIds.includes(l.id));
+      selectedIds.forEach(id => selectedLinkIds.delete(id));
       chrome.storage.local.set({ links: allLinks }, () => {
         renderLinks();
         updateCount();
         updateBadge();
-        document.querySelectorAll('.link-checkbox').forEach(cb => cb.checked = false);
         updateBatchToolbar();
+        DB.deleteSnapshots(selectedIds).then(() => {
+          if (isThumbnailMode()) renderLinks();
+        });
       });
     }
   }
   
   // 取消选择 - 这是唯一关闭批量工具栏的方式
   function cancelBatchSelection() {
-    document.querySelectorAll('.link-checkbox').forEach(cb => cb.checked = false);
+    selectedLinkIds.clear();
     // 同时取消所有分组全选复选框
     document.querySelectorAll('.group-select-all').forEach(cb => {
       cb.checked = false;
@@ -3261,9 +3809,9 @@ document.addEventListener("DOMContentLoaded", () => {
     }
     
     // 自动选中所有重复链接
-    document.querySelectorAll('.link-checkbox').forEach(cb => {
-      if (duplicateIds.includes(parseInt(cb.dataset.id))) {
-        cb.checked = true;
+    getRenderedLinkIds().forEach(linkId => {
+      if (duplicateIds.includes(linkId)) {
+        selectedLinkIds.add(linkId);
       }
     });
     
@@ -3281,11 +3829,8 @@ document.addEventListener("DOMContentLoaded", () => {
     searchInput.value = keyword;
     // 切换到"全部"视图以确保能看到所有匹配条目
     currentView = 'all';
-    // 更新视图标签激活状态
-    document.querySelectorAll('.view-tab[data-view]').forEach(tab => {
-      tab.classList.toggle('active', tab.dataset.view === 'all');
-    });
     localStorage.setItem('currentView', 'all');
+    syncViewTabState();
     renderLinks();
     // 滚动到顶部
     window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -3338,9 +3883,192 @@ document.addEventListener("DOMContentLoaded", () => {
   if (filterDuplicateBtn) {
     filterDuplicateBtn.addEventListener('click', filterDuplicates);
   }
+
+  function setPreviewDetailLock(locked) {
+    document.documentElement.classList.toggle('preview-detail-lock', locked);
+    document.body.classList.toggle('preview-detail-lock', locked);
+  }
+
+  function hidePreviewModalV2() {
+    const modal = document.getElementById('previewModalV2');
+    if (modal) {
+      modal.classList.remove('show');
+      modal.scrollTop = 0;
+    }
+    setPreviewDetailLock(false);
+  }
   
   // 显示大图预览弹窗
+  function showPreviewModalV2(options, legacyClickPoint) {
+    const config = typeof options === 'string'
+      ? { mode: 'simple', dataUrl: options, clickPoint: legacyClickPoint }
+      : (options || {});
+    const {
+      mode = 'simple',
+      dataUrl,
+      clickPoint = null,
+      link = null,
+      index = null,
+      visited = null
+    } = config;
+
+    if (!dataUrl) return;
+
+    let modal = document.getElementById('previewModalV2');
+    if (!modal) {
+      modal = document.createElement('div');
+      modal.id = 'previewModalV2';
+      modal.className = 'preview-modal preview-modal-detail';
+      modal.style.zIndex = '20010';
+      document.body.appendChild(modal);
+    }
+
+    const detailHtml = mode === 'detail' && link
+      ? buildPreviewCardDetailHtml(link, index, visited)
+      : '';
+
+    modal.innerHTML = `
+      <div class="preview-scroll-layer">
+        <div class="preview-shell ${mode === 'detail' ? 'detail' : 'simple'}">
+          <div class="preview-media-section">
+            <div class="preview-container preview-image-frame">
+              <img src="${dataUrl}" alt="??????">
+            </div>
+          </div>
+          ${detailHtml ? `<div class="preview-detail-section">${detailHtml}</div>` : ''}
+        </div>
+      </div>
+    `;
+
+    modal.onclick = () => {
+      hidePreviewModalV2();
+    };
+
+    const scrollLayer = modal.querySelector('.preview-scroll-layer');
+    const shell = modal.querySelector('.preview-shell');
+    const container = modal.querySelector('.preview-container');
+    const previewImage = modal.querySelector('.preview-image-frame img');
+
+    if (scrollLayer) {
+      scrollLayer.addEventListener('click', () => hidePreviewModalV2());
+    }
+    if (shell) {
+      shell.addEventListener('click', (e) => e.stopPropagation());
+    }
+    if (previewImage) {
+      previewImage.addEventListener('click', () => hidePreviewModalV2());
+    }
+
+    const marker = createSnapshotMarker(clickPoint);
+    if (marker && container) {
+      marker.style.width = '20px';
+      marker.style.height = '20px';
+      container.appendChild(marker);
+    }
+
+    if (mode === 'detail' && link) {
+      const previewUrl = modal.querySelector('.preview-detail-link');
+      if (previewUrl) {
+        previewUrl.addEventListener('mousedown', (e) => {
+          if (e.button === 0 || e.button === 1) {
+            recordVisit(link.url);
+          }
+        });
+      }
+
+      modal.querySelectorAll('.preview-detail-card .link-tag').forEach(tagEl => {
+        bindTagAction(tagEl);
+      });
+
+      modal.querySelectorAll('.preview-detail-card .group-badge[data-group-name]').forEach(badgeEl => {
+        badgeEl.addEventListener('click', (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          const groupName = e.currentTarget.dataset.groupName;
+          if (groupName) {
+            hidePreviewModalV2();
+            filterByKeyword(groupName);
+          }
+        });
+      });
+
+      const dupBadge = modal.querySelector('.preview-detail-card .duplicate-badge');
+      if (dupBadge) {
+        dupBadge.addEventListener('click', (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          const dupUrl = dupBadge.dataset.duplicateUrl;
+          if (dupUrl) {
+            hidePreviewModalV2();
+            filterByKeyword(dupUrl);
+          }
+        });
+      }
+
+      const detailCopyBtn = modal.querySelector('.preview-detail-card [data-action="copy-card-url"]');
+      if (detailCopyBtn) {
+        detailCopyBtn.addEventListener('click', async () => {
+          try {
+            await navigator.clipboard.writeText(link.url);
+            const oldText = detailCopyBtn.textContent;
+            detailCopyBtn.textContent = '???';
+            setTimeout(() => {
+              detailCopyBtn.textContent = oldText;
+            }, 1200);
+          } catch (err) {
+            console.error('??????:', err);
+          }
+        });
+      }
+
+      const editCardBtn = modal.querySelector('.preview-detail-card [data-action="edit-card-tags"]');
+      if (editCardBtn) {
+        editCardBtn.addEventListener('click', () => {
+          hidePreviewModalV2();
+          showTagDialog(link.id);
+        });
+      }
+
+      const moveCardBtn = modal.querySelector('.preview-detail-card [data-action="move-card-group"]');
+      if (moveCardBtn) {
+        moveCardBtn.addEventListener('click', () => {
+          hidePreviewModalV2();
+          showMoveDialog(link.id);
+        });
+      }
+
+      const deleteBtn = modal.querySelector('.preview-detail-card [data-action="delete-card-link"]');
+      if (deleteBtn) {
+        deleteBtn.addEventListener('click', () => {
+          hidePreviewModalV2();
+          deleteLink(link.id);
+        });
+      }
+    }
+
+    setPreviewDetailLock(true);
+    modal.classList.add('show');
+    modal.scrollTop = 0;
+    requestAnimationFrame(() => {
+      modal.scrollTop = 0;
+      if (scrollLayer) {
+        scrollLayer.scrollTop = 0;
+      }
+    });
+  }
+
   function showPreviewModal(dataUrl, clickPoint) {
+    const config = typeof dataUrl === 'string'
+      ? { mode: 'simple', dataUrl, clickPoint }
+      : (dataUrl || {});
+    const mode = config.mode || 'simple';
+    const finalDataUrl = config.dataUrl;
+    const finalClickPoint = config.clickPoint || clickPoint || null;
+    const previewLink = config.link || null;
+    const previewIndex = config.index || null;
+    const previewVisited = config.visited || null;
+    if (!finalDataUrl) return;
+
     let modal = document.getElementById('previewModal');
     if (!modal) {
       modal = document.createElement('div');
@@ -3395,35 +4123,25 @@ document.addEventListener("DOMContentLoaded", () => {
       if (modal && modal.classList.contains('show')) {
         modal.classList.remove('show');
       }
+      const modalV2 = document.getElementById('previewModalV2');
+      if (modalV2 && modalV2.classList.contains('show')) {
+        hidePreviewModalV2();
+      }
     }
   });
 
   // 初始加载：恢复视图tab的激活状态
   (function restoreActiveTab() {
-    // 先移除所有tab的active
-    viewTabs.forEach(t => t.classList.remove('active'));
-    
-    if (currentView === 'byDate') {
-      // byDate 按钮不在 viewTabs 的 data-view 中，需要特殊处理
-      const byDateBtn = document.getElementById('byDateBtn');
-      if (byDateBtn) byDateBtn.classList.add('active');
-    } else {
-      // 查找匹配 data-view 的 tab
-      let found = false;
-      viewTabs.forEach(t => {
-        if (t.dataset.view === currentView) {
-          t.classList.add('active');
-          found = true;
-        }
-      });
-      // 如果没找到匹配的，回退到 "all"
-      if (!found) {
-        currentView = 'all';
-        viewTabs.forEach(t => {
-          if (t.dataset.view === 'all') t.classList.add('active');
-        });
-      }
+    const validViews = new Set(['all', 'byGroup', 'byDomain', 'byNote', 'unvisited', 'byDate']);
+    if (!validViews.has(currentView)) {
+      currentView = 'all';
+      localStorage.setItem('currentView', currentView);
     }
+    if (!['card', 'thumb'].includes(currentDisplayMode)) {
+      currentDisplayMode = 'card';
+      localStorage.setItem('currentDisplayMode', currentDisplayMode);
+    }
+    syncViewTabState();
   })();
 
   loadLinks();

@@ -8,10 +8,9 @@
 </head>
 <body>
   <div class="container">
-    <!-- 头部 -->
     <header class="header">
       <div class="header-left">
-        <h1>🔗 右键链接收集器</h1>
+        <h1>🔆 右键链接收集器</h1>
         <div class="stats">
           <span id="totalCount" class="stat-badge">0</span>
           <span class="stat-label">个链接</span>
@@ -20,7 +19,7 @@
         <button id="clearAllBtn" class="btn btn-danger">🗑️ 清空全部</button>
       </div>
       <div class="header-right">
-        <label class="setting-toggle" title="保存链接后自动关闭该网页标签页">
+        <label class="setting-toggle" title="保存链接后自动关闭当前网页标签页">
           <span class="setting-toggle-text">保存后关闭标签</span>
           <div class="toggle-switch">
             <input type="checkbox" id="autoCloseTabBtn" />
@@ -30,20 +29,19 @@
         <button id="themeBtn" class="theme-btn" title="切换主题">🌙</button>
       </div>
     </header>
-    
-    <!-- 视图切换 -->
+
     <div class="view-tabs">
       <button class="view-tab active" data-view="all">全部</button>
+      <button class="view-tab" data-view="thumbGrid">缩略图模式</button>
       <button class="view-tab" data-view="byGroup">按分组</button>
       <button class="view-tab" data-view="byDomain">按域名分组</button>
       <button class="view-tab" data-view="byNote">按标签分组</button>
       <button class="view-tab" data-view="unvisited">未访问</button>
-      <button id="toggleGroupsBtn" class="view-tab view-tab-action">📂 折叠分组</button>
+      <button id="toggleGroupsBtn" class="view-tab view-tab-action">🧰 折叠分组</button>
       <button id="byDateBtn" class="view-tab view-tab-date">📅 按日期分组</button>
-      <button id="manageGroupsBtn" class="view-tab view-tab-special">📁 管理分组 <span id="groupCountDisplay" class="group-count-display">当前有0个分组</span></button>
+      <button id="manageGroupsBtn" class="view-tab view-tab-special">🗂 管理分组 <span id="groupCountDisplay" class="group-count-display">当前共 0 个分组</span></button>
     </div>
-    
-    <!-- 工具栏 -->
+
     <div class="toolbar">
       <div class="search-box" style="position: relative; display: flex; align-items: center; flex: 1;">
         <input type="text" id="searchInput" placeholder="搜索链接..." style="padding-right: 110px; width: 100%;" />
@@ -54,25 +52,24 @@
       </div>
       <div class="toolbar-actions">
         <button id="sortBtn" class="btn btn-secondary">⏱️ 按时间排序</button>
-        <button id="filterDuplicateBtn" class="btn btn-secondary">🔍 过滤重复</button>
+        <button id="filterDuplicateBtn" class="btn btn-secondary">🔁 过滤重复</button>
         <div class="dropdown">
           <button id="saveHtmlBtn" class="btn btn-primary">💾 保存HTML <span class="caret">▼</span></button>
           <div class="dropdown-content">
-            <a href="#" id="exportAllHtmlSnap">全部链接 (带快照)</a>
-            <a href="#" id="exportAllHtmlNoSnap">全部链接 (无快照)</a>
+            <a href="#" id="exportAllHtmlSnap">全部链接（带快照）</a>
+            <a href="#" id="exportAllHtmlNoSnap">全部链接（无快照）</a>
             <div class="dropdown-divider"></div>
-            <a href="#" id="exportSelectedHtmlSnap">选中链接 (带快照)</a>
-            <a href="#" id="exportSelectedHtmlNoSnap">选中链接 (无快照)</a>
+            <a href="#" id="exportSelectedHtmlSnap">选中链接（带快照）</a>
+            <a href="#" id="exportSelectedHtmlNoSnap">选中链接（无快照）</a>
           </div>
         </div>
-        <button id="saveTxtBtn" class="btn btn-secondary">📄 保存TXT</button>
+        <button id="saveTxtBtn" class="btn btn-secondary">📝 保存TXT</button>
         <button id="exportDataBtn" class="btn btn-primary">📦 导出数据</button>
         <button id="importDataBtn" class="btn btn-secondary">📥 导入数据</button>
         <input type="file" id="importFileInput" accept=".json" style="display: none;">
       </div>
     </div>
-    
-    <!-- 搜索导航栏 -->
+
     <div id="searchNavToolbar" class="search-nav-toolbar" style="display: none;">
       <!-- keywords tags injected here -->
     </div>
@@ -83,42 +80,37 @@
         <div id="groupJumpDropdown" class="dropdown-content"></div>
       </div>
     </div>
-    
-    <!-- 批量操作工具栏 -->
+
     <div id="batchToolbar" class="batch-toolbar" style="display: none;">
-      <input type="checkbox" id="batchSelectAllCheckbox" class="batch-select-all-checkbox" title="全选/取消全选">
-      <span id="batchCount" style="margin-right: 20px; font-weight: 500;">已选择 0 个</span>
-      <button id="batchMoveBtn" class="btn btn-success">📁 批量移动</button>
+      <input type="checkbox" id="batchSelectAllCheckbox" class="batch-select-all-checkbox" title="全选 / 取消全选">
+      <span id="batchCount" style="margin-right: 20px; font-weight: 500;">已选择 0 项</span>
+      <button id="batchMoveBtn" class="btn btn-success">🗂 批量移动</button>
       <button id="batchDeleteBtn" class="btn btn-danger">🗑️ 批量删除</button>
       <button id="batchCancelBtn" class="btn btn-secondary">取消选择</button>
     </div>
-    
-    <!-- 链接列表 -->
+
     <div class="links-section">
       <div id="linksList" class="links-list">
-        <!-- 链接项将动态插入这里 -->
+        <!-- 链接条目将动态插入这里 -->
       </div>
       <div id="emptyState" class="empty-state">
         <div class="empty-icon">📭</div>
         <p>还没有保存任何链接</p>
-        <p class="empty-hint">右键点击网页链接，选择"保存链接到收集器"</p>
+        <p class="empty-hint">在网页中右键点击链接，选择“保存链接到收集器”即可。</p>
       </div>
     </div>
   </div>
-  
-  <!-- 分组管理弹窗 -->
+
   <div id="groupModal" class="modal">
     <div class="modal-content">
       <div class="modal-header">
-        <h2>📁 管理分组 <span id="groupCountBadge" class="group-count-badge">0</span></h2>
+        <h2>🗂 管理分组 <span id="groupCountBadge" class="group-count-badge">0</span></h2>
         <button class="modal-close" id="closeGroupModal">✕</button>
       </div>
       <div class="modal-body">
-        <div class="group-list" id="groupList">
-          <!-- 分组列表将动态插入 -->
-        </div>
+        <div class="group-list" id="groupList"></div>
         <div class="add-group-section" style="flex-wrap: wrap;">
-          <input type="text" id="newGroupName" placeholder="输入新分组名称..." maxlength="20" style="flex: 1; min-width: 150px;"/>
+          <input type="text" id="newGroupName" placeholder="输入新分组名称..." maxlength="20" style="flex: 1; min-width: 150px;" />
           <div style="display:flex; gap:12px; align-items:center; flex-shrink: 0;">
             <label style="font-size:13px; font-weight:bold; color:var(--text-muted); display:flex; align-items:center; gap:6px; cursor:pointer;" title="选择背景色">
               背景<input type="color" id="newGroupColor" value="#2196F3" style="width:40px;height:40px;padding:2px;cursor:pointer;border:2px solid var(--border);border-radius:6px;">
@@ -132,7 +124,7 @@
       </div>
     </div>
   </div>
-  
+
   <script src="db.js"></script>
   <script src="manager.js"></script>
 </body>
