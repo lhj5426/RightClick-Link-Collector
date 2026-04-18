@@ -2974,11 +2974,17 @@ document.addEventListener("DOMContentLoaded", () => {
         };
 
         function generateTabEntryInternal(link, i) {
-          const saveTime = link.date ? '<div class="tab-save-time">????: ' + link.date + '</div>' : '';
+          const escapeText = (value) => String(value || '')
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#39;');
+          const saveTime = link.date ? '<div class="tab-save-time">保存时间: ' + escapeText(link.date) + '</div>' : '';
           
           let tagsDisplay = '';
           if (link.tags && link.tags.length > 0) {
-            const spanHTML = link.tags.map(t => '<span onclick="event.stopPropagation(); window.searchTabs(this.textContent.trim())" title="???????" style="display:inline-block; padding:2px 8px; border-radius:12px; font-size:12px; font-weight:500; color:' + (t.textColor || '#ffffff') + '; text-shadow:0 1px 1px rgba(0,0,0,0.3); background:' + t.color + '; margin-right:6px; cursor:pointer;">' + t.text + '</span>').join('');
+            const spanHTML = link.tags.map(t => '<span onclick="event.stopPropagation(); window.searchTabs(this.textContent.trim())" title="点击搜索该标签" style="display:inline-block; padding:2px 8px; border-radius:12px; font-size:12px; font-weight:500; color:' + (t.textColor || '#ffffff') + '; text-shadow:0 1px 1px rgba(0,0,0,0.3); background:' + t.color + '; margin-right:6px; cursor:pointer;">' + escapeText(t.text) + '</span>').join('');
             tagsDisplay = '<div class="tab-tags" style="margin-top:6px;">' + spanHTML + '</div>';
           }
           
@@ -2994,23 +3000,23 @@ document.addEventListener("DOMContentLoaded", () => {
                 markerHTML = '<div class="snapshot-marker" style="left: ' + left + '%; top: ' + top + '%;"></div>';
               }
             }
-            snapshotHTML = '<div class="tab-snapshot" data-id="' + link.id + '" onclick="window.showPreview(this)"><img src="' + snapshotData + '" alt="??">' + markerHTML + '</div>';
+            snapshotHTML = '<div class="tab-snapshot" data-id="' + link.id + '" onclick="window.showPreview(this)"><img src="' + snapshotData + '" alt="快照">' + markerHTML + '</div>';
           }
 
-          return '<div class="tab-entry" data-url="' + link.url + '" data-title="' + (link.title || '') + '" data-tags="' + (link.tags ? link.tags.map(t => t.text).join(' ') : '') + '">' +
+          return '<div class="tab-entry" data-url="' + escapeText(link.url) + '" data-title="' + escapeText(link.title || link.page || '') + '" data-tags="' + escapeText(link.tags ? link.tags.map(t => t.text).join(' ') : '') + '">' +
             '<span class="tab-index">' + (i + 1) + '</span>' +
             '<input type="checkbox" class="tab-checkbox" onclick="window.updateSelectionState()">' +
             '<div class="tab-content">' +
-            '<a href="' + link.url + '" class="tab-title" target="_blank" onmousedown="window.handleLinkClick(event)">' + link.url + '</a>' +
+            '<a href="' + escapeText(link.url) + '" class="tab-title" target="_blank" onmousedown="window.handleLinkClick(event)">' + escapeText(link.url) + '</a>' +
             '<div class="tab-url-container">' +
-            '<span class="tab-url-toggle" onclick="window.toggleUrl(this)">? ????</span>' +
-            '<div class="tab-url collapsed">??: ' + (link.title || '??') + '</div>' +
+            '<span class="tab-url-toggle" onclick="window.toggleUrl(this)">▶ 显示来源</span>' +
+            '<div class="tab-url collapsed">来源: ' + escapeText(link.title || link.page || '未知') + '</div>' +
             '</div>' +
             saveTime + tagsDisplay +
             '<div class="visit-info"><span class="visit-time"></span><span class="visit-count"></span></div>' +
             '<div class="tab-markers">' +
-            '<label class="marker-checkbox marker-downloaded"><input type="checkbox" class="marker-downloaded-cb" onchange="window.saveMarker(this, &quot;downloaded&quot;)"><span>? ???</span></label>' +
-            '<label class="marker-checkbox marker-skipped"><input type="checkbox" class="marker-skipped-cb" onchange="window.saveMarker(this, &quot;skipped&quot;)"><span>? ???</span></label>' +
+            '<label class="marker-checkbox marker-downloaded"><input type="checkbox" class="marker-downloaded-cb" onchange="window.saveMarker(this, &quot;downloaded&quot;)"><span>✓ 已下载</span></label>' +
+            '<label class="marker-checkbox marker-skipped"><input type="checkbox" class="marker-skipped-cb" onchange="window.saveMarker(this, &quot;skipped&quot;)"><span>✗ 未下载</span></label>' +
             '</div></div>' + snapshotHTML + '</div>';
         }
 
@@ -3228,8 +3234,8 @@ document.addEventListener("DOMContentLoaded", () => {
             const links = tagInfo.links;
             html += '<div class="tab-group">' +
               '<div class="group-header" onclick="window.toggleGroup(this)">' +
-              '<span class="group-header-title">??? <span onclick="event.stopPropagation(); window.searchTabs(this.textContent.trim())" title="???????" style="display:inline-block; padding:2px 6px; border-radius:10px; background:' + tagInfo.color + '; color:' + tagInfo.textColor + '; font-size:12px; cursor:pointer;">' + tagText + '</span> ???' + links.length + '????</span>' +
-              '<span class="toggle-icon">?</span>' +
+              '<span class="group-header-title">标签 <span onclick="event.stopPropagation(); window.searchTabs(this.textContent.trim())" title="点击搜索该标签" style="display:inline-block; padding:2px 6px; border-radius:10px; background:' + tagInfo.color + '; color:' + tagInfo.textColor + '; font-size:12px; cursor:pointer;">' + escapeHtml(tagText) + '</span> 【共有' + links.length + '个链接】</span>' +
+              '<span class="toggle-icon">▾</span>' +
               '</div>' +
               '<div class="group-content">' + links.map((link, i) => generateTabEntryInternal(link, i)).join('') + '</div>' +
               '</div>';
@@ -3238,8 +3244,8 @@ document.addEventListener("DOMContentLoaded", () => {
           if (withoutTags.length > 0) {
             html += '<div class="tab-group">' +
               '<div class="group-header" onclick="window.toggleGroup(this)">' +
-              '<span class="group-header-title">??? ??? ???' + withoutTags.length + '????</span>' +
-              '<span class="toggle-icon">?</span>' +
+              '<span class="group-header-title">未添加标签 【共有' + withoutTags.length + '个链接】</span>' +
+              '<span class="toggle-icon">▾</span>' +
               '</div>' +
               '<div class="group-content">' + withoutTags.map((link, i) => generateTabEntryInternal(link, i)).join('') + '</div>' +
               '</div>';
@@ -3932,7 +3938,7 @@ document.addEventListener("DOMContentLoaded", () => {
         <div class="preview-shell ${mode === 'detail' ? 'detail' : 'simple'}">
           <div class="preview-media-section">
             <div class="preview-container preview-image-frame">
-              <img src="${dataUrl}" alt="??????">
+              <img src="${dataUrl}" alt="快照预览">
             </div>
           </div>
           ${detailHtml ? `<div class="preview-detail-section">${detailHtml}</div>` : ''}
@@ -4011,12 +4017,12 @@ document.addEventListener("DOMContentLoaded", () => {
           try {
             await navigator.clipboard.writeText(link.url);
             const oldText = detailCopyBtn.textContent;
-            detailCopyBtn.textContent = '???';
+            detailCopyBtn.textContent = '已复制';
             setTimeout(() => {
               detailCopyBtn.textContent = oldText;
             }, 1200);
           } catch (err) {
-            console.error('??????:', err);
+            console.error('复制链接失败:', err);
           }
         });
       }

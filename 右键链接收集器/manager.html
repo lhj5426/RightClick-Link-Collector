@@ -10,13 +10,13 @@
   <div class="container">
     <header class="header">
       <div class="header-left">
-        <h1>🔆 右键链接收集器</h1>
+        <h1>🖱️ 右键链接收集器</h1>
         <div class="stats">
           <span id="totalCount" class="stat-badge">0</span>
           <span class="stat-label">个链接</span>
         </div>
         <button id="copyAllBtn" class="btn btn-secondary">📋 复制全部</button>
-        <button id="clearAllBtn" class="btn btn-danger">🗑️ 清空全部</button>
+        <button id="clearAllBtn" class="btn btn-danger">🗑 清空全部</button>
       </div>
       <div class="header-right">
         <label class="setting-toggle" title="保存链接后自动关闭当前网页标签页">
@@ -37,9 +37,9 @@
       <button class="view-tab" data-view="byDomain">按域名分组</button>
       <button class="view-tab" data-view="byNote">按标签分组</button>
       <button class="view-tab" data-view="unvisited">未访问</button>
-      <button id="toggleGroupsBtn" class="view-tab view-tab-action">🧰 折叠分组</button>
+      <button id="toggleGroupsBtn" class="view-tab view-tab-action">📂 折叠分组</button>
       <button id="byDateBtn" class="view-tab view-tab-date">📅 按日期分组</button>
-      <button id="manageGroupsBtn" class="view-tab view-tab-special">🗂 管理分组 <span id="groupCountDisplay" class="group-count-display">当前共 0 个分组</span></button>
+      <button id="manageGroupsBtn" class="view-tab view-tab-special">🗂 管理分组 <span id="groupCountDisplay" class="group-count-display">当前有 0 个分组</span></button>
     </div>
 
     <div class="toolbar">
@@ -51,8 +51,8 @@
         </div>
       </div>
       <div class="toolbar-actions">
-        <button id="sortBtn" class="btn btn-secondary">⏱️ 按时间排序</button>
-        <button id="filterDuplicateBtn" class="btn btn-secondary">🔁 过滤重复</button>
+        <button id="sortBtn" class="btn btn-secondary">↕ 按时间排序</button>
+        <button id="filterDuplicateBtn" class="btn btn-secondary">🔍 过滤重复</button>
         <div class="dropdown">
           <button id="saveHtmlBtn" class="btn btn-primary">💾 保存HTML <span class="caret">▼</span></button>
           <div class="dropdown-content">
@@ -85,7 +85,7 @@
       <input type="checkbox" id="batchSelectAllCheckbox" class="batch-select-all-checkbox" title="全选 / 取消全选">
       <span id="batchCount" style="margin-right: 20px; font-weight: 500;">已选择 0 项</span>
       <button id="batchMoveBtn" class="btn btn-success">🗂 批量移动</button>
-      <button id="batchDeleteBtn" class="btn btn-danger">🗑️ 批量删除</button>
+      <button id="batchDeleteBtn" class="btn btn-danger">🗑 批量删除</button>
       <button id="batchCancelBtn" class="btn btn-secondary">取消选择</button>
     </div>
 
