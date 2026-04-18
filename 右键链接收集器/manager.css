@@ -604,13 +604,13 @@ body.dark .search-highlight.hl-6, body.dark .nav-tag.hl-6 { background-color: #1
 .thumb-overlay-top {
   position: absolute;
   top: 10px;
-  left: 46px;
+  left: 56px;
   right: 10px;
   display: flex;
   flex-direction: column;
   gap: 8px;
   align-items: flex-start;
-  z-index: 2;
+  z-index: 4;
   pointer-events: none;
 }
 
@@ -646,8 +646,14 @@ body.dark .search-highlight.hl-6, body.dark .nav-tag.hl-6 { background-color: #1
 }
 
 .thumb-index-badge {
+  position: relative;
+  z-index: 1;
   background: rgba(15, 23, 42, 0.86);
   color: #fff;
+}
+
+.thumb-media .snapshot-marker {
+  z-index: 1;
 }
 
 .thumb-group-badge {
