@@ -9,6 +9,7 @@ let currentView = localStorage.getItem('currentView') || "all";
 let currentDisplayMode = localStorage.getItem('currentDisplayMode') || "card";
 let groupsCollapsed = localStorage.getItem('groupsCollapsed') === 'true';
 let sortOrder = "oldest"; // "oldest" 旧→新（默认），"newest" 新→旧
+let pageSortOrder = "off"; // "off" 不按页数排序, "asc" 少→多, "desc" 多→少
 let unvisitedMode = "aggregate"; // "aggregate" 聚合模式, "inGroup" 组内模式
 let currentSearchKeywords = []; // 当前搜索的多关键字
 let selectedLinkIds = new Set();
@@ -49,6 +50,59 @@ document.addEventListener("DOMContentLoaded", () => {
   const groupJumpCount = document.getElementById("groupJumpCount");
   const groupJumpDropdown = document.getElementById("groupJumpDropdown");
   const groupJumpFloating = document.getElementById("groupJumpFloating");
+  const headerExportDataBtn = document.getElementById("exportDataBtn");
+  const headerImportDataBtn = document.getElementById("importDataBtn");
+  const headerImportFileInput = document.getElementById("importFileInput");
+
+  const headerLeft = document.querySelector(".header-left");
+  const toolbarActions = document.querySelector(".toolbar-actions");
+  const saveHtmlDropdown = saveHtmlBtn ? saveHtmlBtn.closest(".dropdown") : null;
+
+  if (headerLeft && copyAllBtn && clearAllBtn && saveHtmlDropdown && saveTxtBtn && headerExportDataBtn && headerImportDataBtn) {
+    let titleGroup = headerLeft.querySelector(".header-title-group");
+    if (!titleGroup) {
+      titleGroup = document.createElement("div");
+      titleGroup.className = "header-title-group";
+      const titleEl = headerLeft.querySelector("h1");
+      const statsEl = headerLeft.querySelector(".stats");
+      if (titleEl) titleGroup.appendChild(titleEl);
+      if (statsEl) titleGroup.appendChild(statsEl);
+      headerLeft.prepend(titleGroup);
+    }
+
+    let buttonGrid = headerLeft.querySelector(".header-button-grid");
+    if (!buttonGrid) {
+      buttonGrid = document.createElement("div");
+      buttonGrid.className = "header-button-grid";
+      headerLeft.appendChild(buttonGrid);
+    }
+
+    buttonGrid.appendChild(copyAllBtn);
+    buttonGrid.appendChild(headerExportDataBtn);
+    buttonGrid.appendChild(headerImportDataBtn);
+    buttonGrid.appendChild(clearAllBtn);
+    buttonGrid.appendChild(saveHtmlDropdown);
+    buttonGrid.appendChild(saveTxtBtn);
+    if (headerImportFileInput) {
+      buttonGrid.appendChild(headerImportFileInput);
+    }
+
+    if (toolbarActions) {
+      toolbarActions.querySelectorAll('.dropdown, #saveTxtBtn, #exportDataBtn, #importDataBtn, #importFileInput')
+        .forEach(el => {
+          if (el && el.parentElement === toolbarActions) {
+            el.remove();
+          }
+        });
+    }
+  }
+
+  if (saveHtmlBtn) {
+    saveHtmlBtn.innerHTML = `保存HTML <span class="caret">▼</span>`;
+  }
+
+  copyAllBtn?.classList.add("header-top-action");
+  clearAllBtn?.classList.add("header-top-action");
   
   // 工具函数
   function escapeHtml(s) {
@@ -515,6 +569,29 @@ document.addEventListener("DOMContentLoaded", () => {
     };
   }
 
+  function getPageCountText(link) {
+    const pageCount = Number(link?.pageCount);
+    return Number.isInteger(pageCount) && pageCount > 0 ? `${pageCount} 页` : '';
+  }
+
+  function getPageCountValue(link) {
+    const pageCount = Number(link?.pageCount);
+    return Number.isInteger(pageCount) && pageCount > 0 ? pageCount : 0;
+  }
+
+  function compareLinks(a, b) {
+    if (pageSortOrder !== "off") {
+      const pageDiff = getPageCountValue(a) - getPageCountValue(b);
+      if (pageDiff !== 0) {
+        return pageSortOrder === "asc" ? pageDiff : -pageDiff;
+      }
+    }
+
+    const timeA = new Date(a.date || 0).getTime();
+    const timeB = new Date(b.date || 0).getTime();
+    return sortOrder === "oldest" ? timeA - timeB : timeB - timeA;
+  }
+
   function createSnapshotMarker(clickPoint) {
     if (!clickPoint) return null;
     const { x, y, viewportW, viewportH } = clickPoint;
@@ -541,6 +618,7 @@ document.addEventListener("DOMContentLoaded", () => {
     const groupInfo = getLinkGroupInfo(link);
     const visitInfo = getLinkVisitInfo(link, visitedMap);
     const source = link.page || '未知';
+    const pageCountText = getPageCountText(link);
     const duplicateCount = duplicateUrlMap && duplicateUrlMap[link.url] ? duplicateUrlMap[link.url].length : 1;
     const duplicateText = duplicateCount > 1 ? `重复 ${duplicateCount} 条` : '无重复';
     const descHtml = link.desc
@@ -566,6 +644,11 @@ document.addEventListener("DOMContentLoaded", () => {
             <span class="preview-info-label">来源</span>
             <span>${escapeHtml(source)}</span>
           </div>
+          ${pageCountText ? `
+          <div class="preview-info-item">
+            <span class="preview-info-label">页数</span>
+            <span class="preview-page-count">${escapeHtml(pageCountText)}</span>
+          </div>` : ''}
           <div class="preview-info-item">
             <span class="preview-info-label">访问次数</span>
             <span class="${visitInfo.visitClass ? `link-visits ${visitInfo.visitClass}` : ''}">${visitInfo.visitCount > 0 ? `已访问 ${visitInfo.visitCount} 次` : '未访问'}</span>
@@ -590,6 +673,7 @@ document.addEventListener("DOMContentLoaded", () => {
   function buildPreviewCardDetailHtml(link, index, visitedMap) {
     const groupInfo = getLinkGroupInfo(link);
     const visitInfo = getLinkVisitInfo(link, visitedMap);
+    const pageCountText = getPageCountText(link);
 
     const visitHtml = visitInfo.visitCount > 0
       ? `<div class="link-meta">
@@ -633,6 +717,7 @@ document.addEventListener("DOMContentLoaded", () => {
             <a href="${escapeHtml(link.url)}" class="link-url preview-detail-link" target="_blank" rel="noopener noreferrer" data-url="${escapeHtml(link.url)}">${escapeHtml(link.url)}</a>
             <div class="link-source">来源: ${escapeHtml(link.title || link.page || '未知')} ${groupBadge} ${duplicateBadge}</div>
             <div class="link-date">保存时间: ${escapeHtml(link.date || '')}</div>
+            ${pageCountText ? `<div class="link-page-count">页数: <span class="page-count-pill">${escapeHtml(pageCountText)}</span></div>` : ''}
             ${descHtml}
             ${tagsHtml}
             ${visitHtml}
@@ -665,18 +750,15 @@ document.addEventListener("DOMContentLoaded", () => {
           (link.title || "").toLowerCase().includes(kw) ||
           (link.tags ? link.tags.map(t=>t.text).join(' ') : "").toLowerCase().includes(kw) ||
           (link.desc || "").toLowerCase().includes(kw) ||
+          getPageCountText(link).toLowerCase().includes(kw) ||
           (link.page || "").toLowerCase().includes(kw) ||
           groupName.toLowerCase().includes(kw);
         })
       );
     }
     
-    // 按时间排序
-    visible = visible.sort((a, b) => {
-      const timeA = new Date(a.date || 0).getTime();
-      const timeB = new Date(b.date || 0).getTime();
-      return sortOrder === "oldest" ? timeA - timeB : timeB - timeA;
-    });
+    // 按当前排序规则排序
+    visible = visible.sort(compareLinks);
     
     // 构建重复链接映射缓存
     duplicateUrlMap = {};
@@ -720,6 +802,7 @@ document.addEventListener("DOMContentLoaded", () => {
             (link.title || "").toLowerCase().includes(kw) ||
             (link.tags ? link.tags.map(t=>t.text).join(' ') : "").toLowerCase().includes(kw) ||
             (link.desc || "").toLowerCase().includes(kw) ||
+            getPageCountText(link).toLowerCase().includes(kw) ||
             (link.page || "").toLowerCase().includes(kw) ||
             groupName.toLowerCase().includes(kw);
           }).map(l => l.id);
@@ -820,11 +903,7 @@ document.addEventListener("DOMContentLoaded", () => {
     });
     
     Object.keys(groups).sort().forEach(domain => {
-      const sortedLinks = groups[domain].sort((a, b) => {
-        const timeA = new Date(a.date || 0).getTime();
-        const timeB = new Date(b.date || 0).getTime();
-        return sortOrder === "oldest" ? timeA - timeB : timeB - timeA;
-      });
+      const sortedLinks = groups[domain].sort(compareLinks);
 
       const section = document.createElement("div");
       section.className = "group-section";
@@ -869,11 +948,7 @@ document.addEventListener("DOMContentLoaded", () => {
     const globalLinks = links.filter(link => !link.groupId);
     
     if (globalLinks.length > 0) {
-      const sortedLinks = globalLinks.sort((a, b) => {
-        const timeA = new Date(a.date || 0).getTime();
-        const timeB = new Date(b.date || 0).getTime();
-        return sortOrder === "oldest" ? timeA - timeB : timeB - timeA;
-      });
+      const sortedLinks = globalLinks.sort(compareLinks);
 
       const section = document.createElement("div");
       section.className = "group-section";
@@ -916,11 +991,7 @@ document.addEventListener("DOMContentLoaded", () => {
     // 显示各个分组
     allGroups.forEach(group => {
       const groupLinks = links.filter(link => link.groupId === group.id);
-      const sortedLinks = groupLinks.sort((a, b) => {
-        const timeA = new Date(a.date || 0).getTime();
-        const timeB = new Date(b.date || 0).getTime();
-        return sortOrder === "oldest" ? timeA - timeB : timeB - timeA;
-      });
+      const sortedLinks = groupLinks.sort(compareLinks);
       
       const section = document.createElement("div");
       section.className = "group-section";
@@ -1029,11 +1100,7 @@ document.addEventListener("DOMContentLoaded", () => {
     
     sortedDates.forEach(dateKey => {
       const group = dateGroups[dateKey];
-      const sortedLinks = group.links.sort((a, b) => {
-        const timeA = new Date(a.date || 0).getTime();
-        const timeB = new Date(b.date || 0).getTime();
-        return sortOrder === "oldest" ? timeA - timeB : timeB - timeA;
-      });
+      const sortedLinks = group.links.sort(compareLinks);
 
       const section = document.createElement("div");
       section.className = "group-section";
@@ -1096,11 +1163,7 @@ document.addEventListener("DOMContentLoaded", () => {
       sortedTags.forEach(tagText => {
         const tagInfo = tagMap.get(tagText);
         const groupLinks = tagInfo.links;
-        const sortedGroupLinks = groupLinks.sort((a, b) => {
-          const timeA = new Date(a.date || 0).getTime();
-          const timeB = new Date(b.date || 0).getTime();
-          return sortOrder === "oldest" ? timeA - timeB : timeB - timeA;
-        });
+        const sortedGroupLinks = groupLinks.sort(compareLinks);
         
         const section = document.createElement("div");
         section.className = "group-section";
@@ -1139,11 +1202,7 @@ document.addEventListener("DOMContentLoaded", () => {
     }
     
     if (withoutTags.length > 0) {
-      const sortedWithoutLinks = withoutTags.sort((a, b) => {
-        const timeA = new Date(a.date || 0).getTime();
-        const timeB = new Date(b.date || 0).getTime();
-        return sortOrder === "oldest" ? timeA - timeB : timeB - timeA;
-      });
+      const sortedWithoutLinks = withoutTags.sort(compareLinks);
 
       const section = document.createElement("div");
       section.className = "group-section";
@@ -1376,6 +1435,10 @@ document.addEventListener("DOMContentLoaded", () => {
     const descDisplay = link.desc
       ? `<div class="link-description" title="${escapeHtml(link.desc)}">${highlightText(link.desc, currentSearchKeywords)}</div>`
       : '';
+    const pageCountText = getPageCountText(link);
+    const pageCountDisplay = pageCountText
+      ? `<div class="link-page-count">页数: <span class="page-count-pill">${escapeHtml(pageCountText)}</span></div>`
+      : '';
     
     card.innerHTML = `
       <input type="checkbox" class="link-checkbox" data-id="${link.id}" style="margin-right: 10px; cursor: pointer;" ${isLinkSelected(link.id) ? 'checked' : ''}>
@@ -1384,6 +1447,7 @@ document.addEventListener("DOMContentLoaded", () => {
         <a href="${escapeHtml(link.url)}" class="link-url" target="_blank" data-url="${escapeHtml(link.url)}">${highlightText(link.url, currentSearchKeywords)}</a>
         <div class="link-source">来源: ${highlightText(link.title || link.page || '未知', currentSearchKeywords)} ${groupBadge} ${duplicateBadge}</div>
         <div class="link-date">保存时间: ${escapeHtml(link.date || '')}</div>
+        ${pageCountDisplay}
         ${descDisplay}
         ${tagsDisplay}
         ${visitInfo}
@@ -2045,39 +2109,39 @@ document.addEventListener("DOMContentLoaded", () => {
   });
   
   // 保存HTML下拉菜单事件
-  const htmlDropdown = document.querySelector(".toolbar .dropdown-content");
+  const htmlDropdown = saveHtmlDropdown ? saveHtmlDropdown.querySelector(".dropdown-content") : null;
   
   document.getElementById("exportAllHtmlSnap")?.addEventListener("click", (e) => { 
     e.preventDefault(); 
-    htmlDropdown.classList.remove("show");
+    if (htmlDropdown) htmlDropdown.classList.remove("show");
     exportLinks("html", { snapshots: true, selected: false }); 
   });
   document.getElementById("exportAllHtmlNoSnap")?.addEventListener("click", (e) => { 
     e.preventDefault(); 
-    htmlDropdown.classList.remove("show");
+    if (htmlDropdown) htmlDropdown.classList.remove("show");
     exportLinks("html", { snapshots: false, selected: false }); 
   });
   document.getElementById("exportSelectedHtmlSnap")?.addEventListener("click", (e) => { 
     e.preventDefault(); 
-    htmlDropdown.classList.remove("show");
+    if (htmlDropdown) htmlDropdown.classList.remove("show");
     exportLinks("html", { snapshots: true, selected: true }); 
   });
   document.getElementById("exportSelectedHtmlNoSnap")?.addEventListener("click", (e) => { 
     e.preventDefault(); 
-    htmlDropdown.classList.remove("show");
+    if (htmlDropdown) htmlDropdown.classList.remove("show");
     exportLinks("html", { snapshots: false, selected: true }); 
   });
 
   // 保存HTML默认按钮 (点击展开)
-  saveHtmlBtn.addEventListener("click", (e) => {
+  saveHtmlBtn?.addEventListener("click", (e) => {
     e.stopPropagation();
     if (groupJumpDropdown) groupJumpDropdown.classList.remove("show");
-    htmlDropdown.classList.toggle("show");
+    if (htmlDropdown) htmlDropdown.classList.toggle("show");
   });
 
   // 点击页面其他地方关闭下拉菜单
   window.addEventListener("click", (e) => {
-    if (htmlDropdown.classList.contains("show") && !e.target.closest(".toolbar .dropdown")) {
+    if (htmlDropdown && htmlDropdown.classList.contains("show") && !e.target.closest(".dropdown")) {
       htmlDropdown.classList.remove("show");
     }
     if (groupJumpDropdown && groupJumpDropdown.classList.contains("show") && !e.target.closest(".group-jump-dropdown")) {
@@ -2113,13 +2177,34 @@ document.addEventListener("DOMContentLoaded", () => {
   
   // 排序按钮
   const sortBtn = document.getElementById("sortBtn");
+  let pageSortBtn = document.getElementById("pageSortBtn");
+  if (!pageSortBtn && sortBtn && sortBtn.parentElement) {
+    pageSortBtn = document.createElement("button");
+    pageSortBtn.id = "pageSortBtn";
+    pageSortBtn.className = "btn btn-secondary";
+    sortBtn.insertAdjacentElement("afterend", pageSortBtn);
+  }
+
+  function updatePageSortButtonText() {
+    if (!pageSortBtn) return;
+    if (pageSortOrder === "asc") {
+      pageSortBtn.textContent = "📄 按页数排序(少→多)";
+    } else if (pageSortOrder === "desc") {
+      pageSortBtn.textContent = "📄 按页数排序(多→少)";
+    } else {
+      pageSortBtn.textContent = "📄 按页数排序(关闭)";
+    }
+  }
+
   if (sortBtn) {
     // 从 localStorage 读取排序状态
     const savedSortOrder = localStorage.getItem('sortOrder') || 'oldest';
     sortOrder = savedSortOrder;
+    pageSortOrder = localStorage.getItem('pageSortOrder') || 'off';
     
     // 初始化按钮文本
     sortBtn.textContent = sortOrder === "oldest" ? "⏱️ 按时间排序(旧→新)" : "⏱️ 按时间排序(新→旧)";
+    updatePageSortButtonText();
     
     sortBtn.addEventListener("click", () => {
       sortOrder = sortOrder === "oldest" ? "newest" : "oldest";
@@ -2128,6 +2213,22 @@ document.addEventListener("DOMContentLoaded", () => {
       // 保存排序状态到 localStorage
       localStorage.setItem('sortOrder', sortOrder);
       
+      renderLinks();
+    });
+  }
+
+  if (pageSortBtn) {
+    pageSortBtn.addEventListener("click", () => {
+      if (pageSortOrder === "off") {
+        pageSortOrder = "asc";
+      } else if (pageSortOrder === "asc") {
+        pageSortOrder = "desc";
+      } else {
+        pageSortOrder = "off";
+      }
+
+      localStorage.setItem('pageSortOrder', pageSortOrder);
+      updatePageSortButtonText();
       renderLinks();
     });
   }
@@ -2424,8 +2525,10 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
     // 生成单个链接条目
-    function generateTabEntry(link, index) {
+    function generateTabEntry(link, index, inlineSnapshot = false) {
       const saveTime = link.date ? `<div class="tab-save-time">保存时间: ${escapeHtml(link.date)}</div>` : '';
+      const pageCountText = getPageCountText(link);
+      const pageCountDisplay = pageCountText ? `<div class="tab-page-count">页数: ${escapeHtml(pageCountText)}</div>` : '';
       
       let tagsDisplay = '';
       if (link.tags && link.tags.length > 0) {
@@ -2446,16 +2549,19 @@ document.addEventListener("DOMContentLoaded", () => {
             markerHTML = `<div class="snapshot-marker" style="left: ${left}%; top: ${top}%;"></div>`;
           }
         }
+        const snapshotClass = inlineSnapshot ? 'tab-snapshot has-image' : 'tab-snapshot';
+        const hydratedAttr = inlineSnapshot ? ' data-hydrated="1"' : '';
+        const imageHTML = inlineSnapshot ? `<img src="${snapshotData}" alt="快照">` : '';
         snapshotHTML = `
-          <div class="tab-snapshot" data-id="${link.id}" onclick="window.showPreview(this)">
-            <img src="${snapshotData}" alt="快照">
+          <div class="${snapshotClass}" data-id="${link.id}"${hydratedAttr} onclick="window.showPreview(this)">
+            ${imageHTML}
             ${markerHTML}
           </div>
         `;
       }
 
       return `
-        <div class="tab-entry" data-url="${escapeHtml(link.url)}" data-title="${escapeHtml(link.title || link.page || '')}" data-group-id="${link.groupId || ''}" data-tags="${escapeHtml(link.tags ? link.tags.map(t=>t.text).join(' ') : '')}">
+        <div class="tab-entry" data-url="${escapeHtml(link.url)}" data-title="${escapeHtml(link.title || link.page || '')}" data-group-id="${link.groupId || ''}" data-page-count="${getPageCountValue(link)}" data-tags="${escapeHtml(link.tags ? link.tags.map(t=>t.text).join(' ') : '')}">
           <span class="tab-index">${index}</span>
           <input type="checkbox" class="tab-checkbox" onclick="window.updateSelectionState()">
           <div class="tab-content">
@@ -2465,6 +2571,7 @@ document.addEventListener("DOMContentLoaded", () => {
               <div class="tab-url collapsed">来源: ${escapeHtml(link.title || link.page || '未知')}</div>
             </div>
             ${saveTime}
+            ${pageCountDisplay}
             ${tagsDisplay}
             <div class="visit-info"><span class="visit-time"></span><span class="visit-count"></span></div>
             <div class="tab-markers">
@@ -2575,6 +2682,7 @@ document.addEventListener("DOMContentLoaded", () => {
       url: l.url,
       title: l.title || l.page || '',
       date: l.date,
+      pageCount: getPageCountValue(l),
       groupId: l.groupId,
       note: l.note || '',
       tags: Array.isArray(l.tags) ? l.tags.map(t => ({
@@ -2586,8 +2694,10 @@ document.addEventListener("DOMContentLoaded", () => {
     })));
     const ALL_SNAPSHOTS_JSON = includeSnapshots ? JSON.stringify(snapshots) : '{}';
     const ALL_GROUPS_JSON = JSON.stringify(groups);
+    const EXPORTED_FAVICON_DATA_URL = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAfQAAAH0CAYAAADL1t+KAAAACXBIWXMAAA7EAAAOxAGVKw4bAAAFC2lUWHRYTUw6Y29tLmFkb2JlLnhtcAAAAAAAPD94cGFja2V0IGJlZ2luPSfvu78nIGlkPSdXNU0wTXBDZWhpSHpyZVN6TlRjemtjOWQnPz4KPHg6eG1wbWV0YSB4bWxuczp4PSdhZG9iZTpuczptZXRhLyc+CjxyZGY6UkRGIHhtbG5zOnJkZj0naHR0cDovL3d3dy53My5vcmcvMTk5OS8wMi8yMi1yZGYtc3ludGF4LW5zIyc+CgogPHJkZjpEZXNjcmlwdGlvbiByZGY6YWJvdXQ9JycKICB4bWxuczpBdHRyaWI9J2h0dHA6Ly9ucy5hdHRyaWJ1dGlvbi5jb20vYWRzLzEuMC8nPgogIDxBdHRyaWI6QWRzPgogICA8cmRmOlNlcT4KICAgIDxyZGY6bGkgcmRmOnBhcnNlVHlwZT0nUmVzb3VyY2UnPgogICAgIDxBdHRyaWI6Q3JlYXRlZD4yMDI1LTEwLTA3PC9BdHRyaWI6Q3JlYXRlZD4KICAgICA8QXR0cmliOkV4dElkPjk5YWEzMjU5LWNmNTMtNGJiMS05YzI1LTJiMGY4YWI0ZDlhMjwvQXR0cmliOkV4dElkPgogICAgIDxBdHRyaWI6RmJJZD41MjUyNjU5MTQxNzk1ODA8L0F0dHJpYjpGYklkPgogICAgIDxBdHRyaWI6VG91Y2hUeXBlPjI8L0F0dHJpYjpUb3VjaFR5cGU+CiAgICA8L3JkZjpsaT4KICAgPC9yZGY6U2VxPgogIDwvQXR0cmliOkFkcz4KIDwvcmRmOkRlc2NyaXB0aW9uPgoKIDxyZGY6RGVzY3JpcHRpb24gcmRmOmFib3V0PScnCiAgeG1sbnM6ZGM9J2h0dHA6Ly9wdXJsLm9yZy9kYy9lbGVtZW50cy8xLjEvJz4KICA8ZGM6dGl0bGU+CiAgIDxyZGY6QWx0PgogICAgPHJkZjpsaSB4bWw6bGFuZz0neC1kZWZhdWx0Jz5Db3B5IExpbmsgQ2hyb21lIEV4dGVuc2lvbiAtIDE8L3JkZjpsaT4KICAgPC9yZGY6QWx0PgogIDwvZGM6dGl0bGU+CiA8L3JkZjpEZXNjcmlwdGlvbj4KCiA8cmRm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';
 
-    return `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>保存的链接 - ${timestamp}</title>
+    const EXPORTED_FAVICON_SMALL_DATA_URL = 'data:image/png;base64,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';
+    return `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>保存的链接 - ${timestamp}</title><link rel="icon" type="image/png" sizes="32x32" href="${EXPORTED_FAVICON_SMALL_DATA_URL}"><link rel="shortcut icon" href="${EXPORTED_FAVICON_SMALL_DATA_URL}">
       <style>
         body { font-family: Arial, sans-serif; margin: 0; padding: 20px 20px 20px 210px; background: #f5f5f5; }
         .static-header { background: #fff; padding: 20px; border-radius: 8px; margin-bottom: 20px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
@@ -2617,6 +2727,7 @@ document.addEventListener("DOMContentLoaded", () => {
         .tab-url-toggle { color: #2196F3; font-size: 0.85em; cursor: pointer; user-select: none; display: inline-block; }
         .tab-url-toggle:hover { text-decoration: underline; }
         .tab-save-time { color: #999; font-size: 0.8em; margin-top: 4px; }
+        .tab-page-count { color: #5b6ee1; font-size: 0.85em; margin-top: 4px; font-weight: 600; }
         .tab-note { color: #333; font-size: 0.85em; background: #FFF3E0; padding: 6px 10px; border-radius: 4px; margin-top: 6px; border-left: 3px solid #FF9800; }
         .visit-info { display: flex; gap: 15px; font-size: 0.8em; margin-top: 6px; font-style: italic; color: #666; }
         .tab-group { margin-bottom: 20px; }
@@ -2648,6 +2759,9 @@ document.addEventListener("DOMContentLoaded", () => {
         .tab-snapshot { width: 120px; height: 75px; border-radius: 4px; overflow: hidden; background: #fff; border: 1px solid #ddd; flex-shrink: 0; cursor: pointer; position: relative; display: flex; align-items: center; justify-content: center; }
         .tab-snapshot img { width: 100%; height: 100%; object-fit: contain; object-position: center; display: block; }
         .tab-snapshot .snapshot-marker { position: absolute; width: 8px; height: 8px; background: #ff4444; border-radius: 50%; transform: translate(-50%, -50%); border: 1px solid white; box-shadow: 0 0 3px rgba(0,0,0,0.5); pointer-events: none; }
+        .tab-snapshot::before { content: ''; position: absolute; inset: 0; background: linear-gradient(90deg, #f5f5f5 0%, #ececec 50%, #f5f5f5 100%); background-size: 200% 100%; animation: snapshotLoading 1.2s ease-in-out infinite; }
+        .tab-snapshot.has-image::before { display: none; }
+        @keyframes snapshotLoading { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
         
         .preview-modal { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.8); display: none; justify-content: center; align-items: center; z-index: 10000; }
         .preview-modal.show { display: flex; }
@@ -2666,6 +2780,7 @@ document.addEventListener("DOMContentLoaded", () => {
           <button class="button" style="background:#FF9800" onclick="window.toggleAllUrls()">一键展开所有来源</button>
           <button class="button" style="background:#673AB7" onclick="window.toggleAllGroups()">折叠/展开分组</button>
           <button class="button" style="background:#00BCD4" id="sortOrderBtn" onclick="window.toggleSortOrder()">排序: 新→旧</button>
+          <button class="button" style="background:#3F51B5" id="pageSortOrderBtn" onclick="window.togglePageSortOrder()">页数排序: 关闭</button>
           <button class="button" style="background:#9C27B0" onclick="window.clearMarkers()">清除下载标记</button>
           <button class="button" style="background:#F44336" onclick="window.clearVisitHistory()">清除访问历史</button>
         </div>
@@ -2693,7 +2808,7 @@ document.addEventListener("DOMContentLoaded", () => {
         <button class="view-button" data-view="byUnchecked" style="border-left: 4px solid #9E9E9E;">⚪ 未勾选</button>
       </div>
       <div class="views">
-        <div class="tabs-container active" id="recent">${links.map((link, i) => generateTabEntry(link, i + 1)).join('')}</div>
+        <div class="tabs-container active" id="recent">${links.map((link, i) => generateTabEntry(link, i + 1, true)).join('')}</div>
         <div class="tabs-container" id="alphabetical">${linksByTitle.map((link, i) => generateTabEntry(link, i + 1)).join('')}</div>
         <div class="tabs-container" id="url">${linksByUrl.map((link, i) => generateTabEntry(link, i + 1)).join('')}</div>
         <div class="tabs-container" id="bySaveTime">${bySaveTimeHTML}</div>
@@ -2747,9 +2862,14 @@ document.addEventListener("DOMContentLoaded", () => {
         const ALL_SNAPSHOTS_DATA = ${ALL_SNAPSHOTS_JSON};
         const ALL_GROUPS_DATA = ${ALL_GROUPS_JSON};
         let currentSortOrder = 'desc'; // 'desc' = 新→旧(默认), 'asc' = 旧→新
+        let currentPageSortOrder = 'off'; // 'off' = 关闭, 'asc' = 少→多, 'desc' = 多→少
 
         const getVisitedLinks = () => JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}');
         const getMarkers = () => JSON.parse(localStorage.getItem(MARKERS_STORAGE_KEY) || '{}');
+        const getPageCountValue = (link) => {
+          const value = Number(link && link.pageCount);
+          return Number.isInteger(value) && value > 0 ? value : 0;
+        };
 
         window.recordVisit = (el) => {
           const url = el.dataset.url;
@@ -2847,6 +2967,7 @@ document.addEventListener("DOMContentLoaded", () => {
           active.querySelectorAll('.tab-entry').forEach(e => {
             const match = e.dataset.title.toLowerCase().includes(q) || 
                          e.dataset.url.toLowerCase().includes(q) || 
+                         (e.dataset.pageCount && e.dataset.pageCount.includes(q)) ||
                          (e.dataset.tags && e.dataset.tags.toLowerCase().includes(q));
             e.classList.toggle('hidden', !match);
             if (match) visibleCount++;
@@ -2905,7 +3026,25 @@ document.addEventListener("DOMContentLoaded", () => {
           window.allGroupsCollapsed = collapsing;
         };
 
+        function hydrateSnapshotNode(el) {
+          if (!el || el.dataset.hydrated === '1') return;
+          const id = el.dataset.id;
+          const dataUrl = ALL_SNAPSHOTS_DATA[id];
+          if (!dataUrl) return;
+          const img = document.createElement('img');
+          img.src = dataUrl;
+          img.alt = '快照';
+          el.prepend(img);
+          el.dataset.hydrated = '1';
+          el.classList.add('has-image');
+        }
+
+        window.hydrateSnapshots = (base = document) => {
+          base.querySelectorAll('.tab-snapshot[data-id]').forEach(hydrateSnapshotNode);
+        };
+
         window.showPreview = (el) => {
+          hydrateSnapshotNode(el);
           const id = el.dataset.id;
           const dataUrl = ALL_SNAPSHOTS_DATA[id];
           const tabData = ALL_TABS_DATA.find(t => String(t.id) === String(id));
@@ -2939,38 +3078,82 @@ document.addEventListener("DOMContentLoaded", () => {
           if (e.key === 'Escape') document.getElementById('previewModal').classList.remove('show');
         });
 
-        window.toggleSortOrder = () => {
-          currentSortOrder = currentSortOrder === 'desc' ? 'asc' : 'desc';
-          const btn = document.getElementById('sortOrderBtn');
-          btn.textContent = currentSortOrder === 'desc' ? '排序: 新→旧' : '排序: 旧→新';
-          
-          // 重新排序当前视图
+        function compareExportEntries(a, b) {
+          if (currentPageSortOrder !== 'off') {
+            const pageA = Number(a.dataset.pageCount || '0');
+            const pageB = Number(b.dataset.pageCount || '0');
+            if (pageA !== pageB) {
+              return currentPageSortOrder === 'asc' ? pageA - pageB : pageB - pageA;
+            }
+          }
+
+          const dateA = a.querySelector('.tab-save-time')?.textContent.replace('保存时间: ', '') || '';
+          const dateB = b.querySelector('.tab-save-time')?.textContent.replace('保存时间: ', '') || '';
+          return currentSortOrder === 'desc' ? dateB.localeCompare(dateA) : dateA.localeCompare(dateB);
+        }
+
+        function updateExportSortButtons() {
+          const timeBtn = document.getElementById('sortOrderBtn');
+          const pageBtn = document.getElementById('pageSortOrderBtn');
+          if (timeBtn) {
+            timeBtn.textContent = currentSortOrder === 'desc' ? '排序: 新→旧' : '排序: 旧→新';
+          }
+          if (pageBtn) {
+            if (currentPageSortOrder === 'asc') {
+              pageBtn.textContent = '页数排序: 少→多';
+            } else if (currentPageSortOrder === 'desc') {
+              pageBtn.textContent = '页数排序: 多→少';
+            } else {
+              pageBtn.textContent = '页数排序: 关闭';
+            }
+          }
+        }
+
+        function resortActiveView() {
           const active = document.querySelector('.views > .active');
+          if (!active) return;
+
           active.querySelectorAll('.tab-group').forEach(group => {
             const content = group.querySelector('.group-content');
+            if (!content) return;
             const entries = Array.from(content.querySelectorAll('.tab-entry'));
-            
-            // 按保存时间排序
-            entries.sort((a, b) => {
-              const dateA = a.querySelector('.tab-save-time')?.textContent.replace('保存时间: ', '') || '';
-              const dateB = b.querySelector('.tab-save-time')?.textContent.replace('保存时间: ', '') || '';
-              
-              if (currentSortOrder === 'desc') {
-                return dateB.localeCompare(dateA); // 新→旧
-              } else {
-                return dateA.localeCompare(dateB); // 旧→新
-              }
-            });
-            
-            // 清空并重新添加
+            entries.sort(compareExportEntries);
             content.innerHTML = '';
             entries.forEach((entry, index) => {
-              // 更新序号
               const indexEl = entry.querySelector('.tab-index');
               if (indexEl) indexEl.textContent = index + 1;
               content.appendChild(entry);
             });
           });
+
+          if (!active.querySelector('.tab-group')) {
+            const entries = Array.from(active.querySelectorAll(':scope > .tab-entry'));
+            entries.sort(compareExportEntries);
+            active.innerHTML = '';
+            entries.forEach((entry, index) => {
+              const indexEl = entry.querySelector('.tab-index');
+              if (indexEl) indexEl.textContent = index + 1;
+              active.appendChild(entry);
+            });
+          }
+        }
+
+        window.toggleSortOrder = () => {
+          currentSortOrder = currentSortOrder === 'desc' ? 'asc' : 'desc';
+          updateExportSortButtons();
+          resortActiveView();
+        };
+
+        window.togglePageSortOrder = () => {
+          if (currentPageSortOrder === 'off') {
+            currentPageSortOrder = 'asc';
+          } else if (currentPageSortOrder === 'asc') {
+            currentPageSortOrder = 'desc';
+          } else {
+            currentPageSortOrder = 'off';
+          }
+          updateExportSortButtons();
+          resortActiveView();
         };
 
         function generateTabEntryInternal(link, i) {
@@ -2981,6 +3164,8 @@ document.addEventListener("DOMContentLoaded", () => {
             .replace(/"/g, '&quot;')
             .replace(/'/g, '&#39;');
           const saveTime = link.date ? '<div class="tab-save-time">保存时间: ' + escapeText(link.date) + '</div>' : '';
+          const pageCount = getPageCountValue(link);
+          const pageCountDisplay = pageCount > 0 ? '<div class="tab-page-count">页数: ' + pageCount + ' 页</div>' : '';
           
           let tagsDisplay = '';
           if (link.tags && link.tags.length > 0) {
@@ -3003,7 +3188,7 @@ document.addEventListener("DOMContentLoaded", () => {
             snapshotHTML = '<div class="tab-snapshot" data-id="' + link.id + '" onclick="window.showPreview(this)"><img src="' + snapshotData + '" alt="快照">' + markerHTML + '</div>';
           }
 
-          return '<div class="tab-entry" data-url="' + escapeText(link.url) + '" data-title="' + escapeText(link.title || link.page || '') + '" data-tags="' + escapeText(link.tags ? link.tags.map(t => t.text).join(' ') : '') + '">' +
+          return '<div class="tab-entry" data-url="' + escapeText(link.url) + '" data-title="' + escapeText(link.title || link.page || '') + '" data-page-count="' + pageCount + '" data-tags="' + escapeText(link.tags ? link.tags.map(t => t.text).join(' ') : '') + '">' +
             '<span class="tab-index">' + (i + 1) + '</span>' +
             '<input type="checkbox" class="tab-checkbox" onclick="window.updateSelectionState()">' +
             '<div class="tab-content">' +
@@ -3012,7 +3197,7 @@ document.addEventListener("DOMContentLoaded", () => {
             '<span class="tab-url-toggle" onclick="window.toggleUrl(this)">▶ 显示来源</span>' +
             '<div class="tab-url collapsed">来源: ' + escapeText(link.title || link.page || '未知') + '</div>' +
             '</div>' +
-            saveTime + tagsDisplay +
+            saveTime + pageCountDisplay + tagsDisplay +
             '<div class="visit-info"><span class="visit-time"></span><span class="visit-count"></span></div>' +
             '<div class="tab-markers">' +
             '<label class="marker-checkbox marker-downloaded"><input type="checkbox" class="marker-downloaded-cb" onchange="window.saveMarker(this, &quot;downloaded&quot;)"><span>✓ 已下载</span></label>' +
@@ -3295,10 +3480,15 @@ document.addEventListener("DOMContentLoaded", () => {
               regenerateByMarker('Unchecked');
             }
             window.searchTabs('');
+            resortActiveView();
           });
         });
 
-        document.addEventListener('DOMContentLoaded', () => { applyState(); });
+        document.addEventListener('DOMContentLoaded', () => {
+          applyState();
+          window.hydrateSnapshots();
+          updateExportSortButtons();
+        });
       </script></body></html>`;
   }
 
