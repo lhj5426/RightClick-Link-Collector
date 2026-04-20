@@ -1,4 +1,4 @@
-﻿/**
+/**
  * 多链接收集器 - 管理页面脚本
  */
 
@@ -731,6 +731,89 @@ document.addEventListener("DOMContentLoaded", () => {
         </div>
       </div>
     `;
+  }
+
+  let previewGalleryState = {
+    items: [],
+    currentIndex: -1
+  };
+
+  function buildPreviewGalleryItems(currentLink, currentIndexHint = null, currentVisited = null) {
+    const renderedIds = getRenderedLinkIds(linksList);
+    const allLinksById = new Map(allLinks.map(link => [Number(link.id), link]));
+    const items = [];
+
+    renderedIds.forEach((id, renderIndex) => {
+      const link = allLinksById.get(Number(id));
+      if (!link || !link.hasSnapshot) return;
+      items.push({
+        link,
+        index: renderIndex + 1,
+        visited: currentVisited
+      });
+    });
+
+    if (items.length === 0 && currentLink?.hasSnapshot) {
+      items.push({
+        link: currentLink,
+        index: currentIndexHint || 1,
+        visited: currentVisited
+      });
+    }
+
+    let currentGalleryIndex = items.findIndex(item => Number(item.link.id) === Number(currentLink?.id));
+    if (currentGalleryIndex === -1 && items.length > 0) {
+      currentGalleryIndex = 0;
+    }
+
+    return {
+      items,
+      currentIndex: currentGalleryIndex
+    };
+  }
+
+  async function loadPreviewSnapshotData(linkId, fallbackDataUrl = '') {
+    if (fallbackDataUrl && fallbackDataUrl.startsWith('data:image')) {
+      return fallbackDataUrl;
+    }
+
+    const dataUrl = await DB.getSnapshot(linkId);
+    return dataUrl && dataUrl.startsWith('data:image') ? dataUrl : '';
+  }
+
+  async function navigatePreviewGallery(direction) {
+    const modal = document.getElementById('previewModalV2');
+    if (!modal || !modal.classList.contains('show')) return;
+
+    const { items, currentIndex } = previewGalleryState;
+    if (!Array.isArray(items) || items.length <= 1 || currentIndex < 0) return;
+
+    const nextIndex = currentIndex + direction;
+    if (nextIndex < 0 || nextIndex >= items.length) return;
+
+    const target = items[nextIndex];
+    const dataUrl = await loadPreviewSnapshotData(target.link.id);
+    if (!dataUrl) return;
+
+    const scrollLayer = modal.querySelector('.preview-scroll-layer');
+    const preservedScrollTop = scrollLayer ? scrollLayer.scrollTop : 0;
+
+    previewGalleryState.currentIndex = nextIndex;
+    showPreviewModalV2({
+      mode: 'detail',
+      dataUrl,
+      clickPoint: target.link.clickPoint,
+      link: target.link,
+      index: target.index,
+      visited: target.visited,
+      preserveGallery: true,
+      preserveScrollTop: preservedScrollTop
+    });
+  }
+
+  function isPreviewInteractiveTarget(target) {
+    if (!(target instanceof Element)) return false;
+    return !!target.closest('a, button, input, textarea, select, label, .link-tag, .group-badge, .duplicate-badge, .preview-url, .preview-action-btn, .link-btn');
   }
   
   // 渲染链接
@@ -1475,7 +1558,14 @@ document.addEventListener("DOMContentLoaded", () => {
             img.alt = '快照预览';
             img.onclick = (e) => {
               e.stopPropagation();
-              showPreviewModal(dataUrl, link.clickPoint);
+              showPreviewModalV2({
+                mode: 'detail',
+                dataUrl,
+                clickPoint: link.clickPoint,
+                link,
+                index,
+                visited
+              });
             };
             snapshotEl.appendChild(img);
 
@@ -1576,7 +1666,7 @@ document.addEventListener("DOMContentLoaded", () => {
   }
   
   // 显示标签对话框 (原备注对话框)
-  function showTagDialog(linkId) {
+  function showTagDialog(linkId, { zIndex = 10000, afterSave } = {}) {
     const link = allLinks.find(l => l.id === linkId);
     if (!link) return;
     
@@ -1585,9 +1675,9 @@ document.addEventListener("DOMContentLoaded", () => {
     
     const dialog = document.createElement('div');
     dialog.className = 'modal show';
-    dialog.style.zIndex = '10000';
+    dialog.style.zIndex = String(zIndex);
     dialog.innerHTML = `
-      <div class="modal-content" style="width: min(860px, 92vw); max-width: min(860px, 92vw); max-height: 88vh; z-index: 10001;">
+      <div class="modal-content" style="width: min(860px, 92vw); max-width: min(860px, 92vw); max-height: 88vh; z-index: ${zIndex + 1};">
         <div class="modal-header">
           <h2>编辑标签</h2>
           <button class="modal-close" id="tagDialogClose">✕</button>
@@ -1862,6 +1952,7 @@ document.addEventListener("DOMContentLoaded", () => {
       chrome.storage.local.set({ links: allLinks }, () => {
         renderLinks();
         dialog.remove();
+        if (afterSave) afterSave(link);
       });
     });
     
@@ -2763,11 +2854,16 @@ document.addEventListener("DOMContentLoaded", () => {
         .tab-snapshot.has-image::before { display: none; }
         @keyframes snapshotLoading { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
         
-        .preview-modal { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.8); display: none; justify-content: center; align-items: center; z-index: 10000; }
-        .preview-modal.show { display: flex; }
-        .preview-container { position: relative; display: inline-block; line-height: 0; max-width: 95vw; max-height: 95vh; }
-        .preview-container img { max-width: 100%; max-height: 100%; display: block; border-radius: 8px; background: white; box-shadow: 0 0 30px rgba(0,0,0,0.5); }
-        .preview-container .snapshot-marker { position: absolute; width: 16px; height: 16px; background: #ff4444; border-radius: 50%; transform: translate(-50%, -50%); border: 2px solid white; box-shadow: 0 0 5px rgba(0,0,0,0.8); pointer-events: none; }
+        /* === 高级大图预览弹窗 (复刻manager showPreviewModalV2) === */
+        .exp-preview-modal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.8); z-index: 20000; cursor: zoom-out; overflow: hidden; }
+        .exp-preview-modal.show { display: flex; align-items: stretch; justify-content: center; }
+        .exp-preview-scroll-layer { width: 100%; height: 100vh; overflow-y: auto; overscroll-behavior: contain; -webkit-overflow-scrolling: touch; padding: 24px 0 28px; box-sizing: border-box; }
+        .exp-preview-shell { position: relative; width: min(96vw, 1700px); max-width: min(96vw, 1700px); max-height: none; margin: 0 auto; display: flex; flex-direction: column; gap: 14px; cursor: default; }
+        .exp-preview-media-section { min-height: calc(100vh - 80px); display: flex; align-items: flex-start; }
+        .exp-preview-image-frame { display: block; min-height: 0; max-height: none; border-radius: 10px; overflow: visible; background: rgba(15,23,42,0.72); line-height: 0; box-shadow: 0 18px 40px rgba(0,0,0,0.28); width: 100%; position: relative; }
+        .exp-preview-image-frame img { display: block; width: 100%; max-width: 100%; height: auto; max-height: none; border-radius: 10px; }
+        .exp-preview-image-frame .snapshot-marker { position: absolute; width: 14px; height: 14px; background: #ff4444; border-radius: 50%; transform: translate(-50%,-50%); pointer-events: none; box-shadow: 0 0 8px rgba(0,0,0,0.8); border: 2px solid white; z-index: 100; }
+        .exp-preview-detail-section { margin-top: 28px; padding-top: 4px; background: #f5f7fa; border-radius: 12px; padding: 16px; }
       </style></head><body>
       <div class="static-header">
         <div class="stats"><strong>总链接数:</strong> ${tabCount} | <strong>保存时间:</strong> ${timestamp}</div>
@@ -2794,8 +2890,6 @@ document.addEventListener("DOMContentLoaded", () => {
       </div>
       <div class="view-controls">
         <button class="view-button active" data-view="recent">最新</button>
-        <button class="view-button" data-view="alphabetical">按字母顺序</button>
-        <button class="view-button" data-view="url">按网址</button>
         <button class="view-button" data-view="bySaveTime">按保存时间分组</button>
         <button class="view-button" data-view="byCustomGroup">按自定义分组</button>
         <button class="view-button" data-view="byNote">按标签分组</button>
@@ -2809,8 +2903,6 @@ document.addEventListener("DOMContentLoaded", () => {
       </div>
       <div class="views">
         <div class="tabs-container active" id="recent">${links.map((link, i) => generateTabEntry(link, i + 1, true)).join('')}</div>
-        <div class="tabs-container" id="alphabetical">${linksByTitle.map((link, i) => generateTabEntry(link, i + 1)).join('')}</div>
-        <div class="tabs-container" id="url">${linksByUrl.map((link, i) => generateTabEntry(link, i + 1)).join('')}</div>
         <div class="tabs-container" id="bySaveTime">${bySaveTimeHTML}</div>
         <div class="tabs-container" id="byCustomGroup">${customGroupsHTML}</div>
         <div class="tabs-container" id="byNote"></div>
@@ -2848,12 +2940,8 @@ document.addEventListener("DOMContentLoaded", () => {
         <div class="tabs-container" id="byUnchecked"></div>
       </div>
       
-      <!-- Preview Modal for Exported HTML -->
-      <div id="previewModal" class="preview-modal" onclick="this.classList.remove('show')">
-        <div class="preview-container">
-          <img id="previewImage" src="" alt="预览">
-        </div>
-      </div>
+      <!-- 高级大图预览弹窗（复刻manager showPreviewModalV2）-->
+      <div id="previewModal" class="exp-preview-modal"></div>
 
       <script>
         const STORAGE_KEY = 'tabSaverVisitedLinks';
@@ -2904,15 +2992,20 @@ document.addEventListener("DOMContentLoaded", () => {
 
           if (cb.checked) {
             const otherType = type === 'downloaded' ? 'skipped' : 'downloaded';
-            const otherCb = tabEntry.querySelector(type === 'downloaded' ? '.marker-skipped-cb' : '.marker-downloaded-cb');
-            if (otherCb) {
-              otherCb.checked = false;
-              markers[url][otherType] = false;
-            }
+            markers[url][otherType] = false;
           }
 
           markers[url][type] = cb.checked;
           localStorage.setItem(MARKERS_STORAGE_KEY, JSON.stringify(markers));
+
+          // 同步页面上所有同 URL 的条目（主列表 + 大图详情卡片）
+          document.querySelectorAll('.tab-entry').forEach(entry => {
+            if (entry.dataset.url !== url) return;
+            const dlCb = entry.querySelector('.marker-downloaded-cb');
+            const skCb = entry.querySelector('.marker-skipped-cb');
+            if (dlCb) dlCb.checked = !!markers[url].downloaded;
+            if (skCb) skCb.checked = !!markers[url].skipped;
+          });
         };
 
         window.clearMarkers = () => {
@@ -3043,39 +3136,131 @@ document.addEventListener("DOMContentLoaded", () => {
           base.querySelectorAll('.tab-snapshot[data-id]').forEach(hydrateSnapshotNode);
         };
 
+        // === 高级大图预览（复刻 showPreviewModalV2）===
+        let _gallery = { items: [], index: -1 };
+
+        function _buildDetailHtml(link, galleryIndex) {
+          if (!link) return '';
+          const tmp = document.createElement('div');
+          tmp.innerHTML = generateTabEntryInternal(link, galleryIndex - 1);
+          const snap = tmp.querySelector('.tab-snapshot');
+          if (snap) snap.remove();
+          return \`<div class="exp-preview-detail-section">\${tmp.innerHTML}</div>\`;
+        }
+
+        function _renderPreviewModal() {
+          const modal = document.getElementById('previewModal');
+          const { items, index } = _gallery;
+          const item = items[index];
+          if (!item) return;
+
+          const dataUrl = ALL_SNAPSHOTS_DATA[item.id];
+          if (!dataUrl) return;
+
+          const link = item.link;
+          const clickPoint = link && link.clickPoint;
+
+          let markerHtml = '';
+          if (clickPoint && clickPoint.viewportW && clickPoint.viewportH) {
+            const lp = (clickPoint.x / clickPoint.viewportW * 100).toFixed(3);
+            const tp = (clickPoint.y / clickPoint.viewportH * 100).toFixed(3);
+            markerHtml = \`<div class="snapshot-marker" style="position:absolute;left:\${lp}%;top:\${tp}%;"></div>\`;
+          }
+
+          const detailHtml = _buildDetailHtml(link, item.galleryIndex);
+
+          const prevScrollLayer = modal.querySelector('.exp-preview-scroll-layer');
+          const savedScrollTop = prevScrollLayer ? prevScrollLayer.scrollTop : 0;
+
+          modal.innerHTML = \`<div class="exp-preview-scroll-layer">
+            <div class="exp-preview-shell">
+              <div class="exp-preview-media-section">
+                <div class="exp-preview-image-frame" style="position:relative;">
+                  <img src="\${dataUrl}" alt="快照预览">
+                  \${markerHtml}
+                </div>
+              </div>
+              \${detailHtml}
+            </div>
+          </div>\`;
+
+          modal.classList.add('show');
+          document.documentElement.style.overflow = 'hidden';
+          applyState(modal);
+
+          const newScrollLayer = modal.querySelector('.exp-preview-scroll-layer');
+          if (newScrollLayer && savedScrollTop > 0) newScrollLayer.scrollTop = savedScrollTop;
+
+          const imageFrame = modal.querySelector('.exp-preview-image-frame');
+          const edgeRatio = 0.32;
+          const isAtStart = index <= 0;
+          const isAtEnd = index >= items.length - 1;
+          const canNavigate = items.length > 1;
+
+          modal.onclick = (e) => {
+            if (e.target.closest('a, button, input, textarea, select, label')) return;
+            const clickX = typeof e.clientX === 'number' ? e.clientX : 0;
+            const zone = e.target.closest('.exp-preview-image-frame');
+            const rect = zone ? imageFrame.getBoundingClientRect() : (modal.querySelector('.exp-preview-shell') || modal).getBoundingClientRect();
+            const leftBound = rect.left + rect.width * edgeRatio;
+            const rightBound = rect.left + rect.width * (1 - edgeRatio);
+
+            if (canNavigate && clickX <= leftBound && !isAtStart) {
+              _gallery.index--;
+              _renderPreviewModal();
+              return;
+            }
+            if (canNavigate && clickX >= rightBound && !isAtEnd) {
+              _gallery.index++;
+              _renderPreviewModal();
+              return;
+            }
+            _hidePreviewModal();
+          };
+        }
+
+        function _hidePreviewModal() {
+          const modal = document.getElementById('previewModal');
+          if (modal) {
+            modal.classList.remove('show');
+            modal.innerHTML = '';
+          }
+          document.documentElement.style.overflow = '';
+        }
+
         window.showPreview = (el) => {
           hydrateSnapshotNode(el);
           const id = el.dataset.id;
-          const dataUrl = ALL_SNAPSHOTS_DATA[id];
-          const tabData = ALL_TABS_DATA.find(t => String(t.id) === String(id));
-          const clickPoint = tabData ? tabData.clickPoint : null;
-          
-          if (!dataUrl) return;
+          if (!ALL_SNAPSHOTS_DATA[id]) return;
 
-          const modal = document.getElementById('previewModal');
-          const img = document.getElementById('previewImage');
-          const container = modal.querySelector('.preview-container');
-          
-          // Clear old markers
-          container.querySelectorAll('.snapshot-marker').forEach(m => m.remove());
-          
-          img.src = dataUrl;
-          if (clickPoint) {
-            const { x, y, viewportW, viewportH } = clickPoint;
-            if (viewportW && viewportH) {
-              const marker = document.createElement('div');
-              marker.className = 'snapshot-marker';
-              marker.style.left = (x / viewportW) * 100 + '%';
-              marker.style.top = (y / viewportH) * 100 + '%';
-              container.appendChild(marker);
+          const active = document.querySelector('.views > .active');
+          const items = [];
+          active.querySelectorAll('.tab-snapshot[data-id]').forEach((snapEl, renderIdx) => {
+            const snapId = snapEl.dataset.id;
+            if (ALL_SNAPSHOTS_DATA[snapId]) {
+              const link = ALL_TABS_DATA.find(t => String(t.id) === String(snapId));
+              items.push({ id: snapId, link, galleryIndex: renderIdx + 1 });
             }
+          });
+
+          let idx = items.findIndex(s => String(s.id) === String(id));
+          if (idx === -1) {
+            const link = ALL_TABS_DATA.find(t => String(t.id) === String(id));
+            items.push({ id, link, galleryIndex: 1 });
+            idx = items.length - 1;
           }
-          modal.classList.add('show');
+
+          _gallery = { items, index: idx };
+          _renderPreviewModal();
         };
 
-        // Esc key to close modal
+        // Esc and arrow keys
         document.addEventListener('keydown', (e) => {
-          if (e.key === 'Escape') document.getElementById('previewModal').classList.remove('show');
+          const modal = document.getElementById('previewModal');
+          if (!modal || !modal.classList.contains('show')) return;
+          if (e.key === 'Escape') { _hidePreviewModal(); }
+          else if (e.key === 'ArrowLeft') { e.preventDefault(); if (_gallery.index > 0) { _gallery.index--; _renderPreviewModal(); } }
+          else if (e.key === 'ArrowRight') { e.preventDefault(); if (_gallery.index < _gallery.items.length - 1) { _gallery.index++; _renderPreviewModal(); } }
         });
 
         function compareExportEntries(a, b) {
@@ -3185,7 +3370,7 @@ document.addEventListener("DOMContentLoaded", () => {
                 markerHTML = '<div class="snapshot-marker" style="left: ' + left + '%; top: ' + top + '%;"></div>';
               }
             }
-            snapshotHTML = '<div class="tab-snapshot" data-id="' + link.id + '" onclick="window.showPreview(this)"><img src="' + snapshotData + '" alt="快照">' + markerHTML + '</div>';
+            snapshotHTML = '<div class="tab-snapshot has-image" data-id="' + link.id + '" onclick="window.showPreview(this)"><img src="' + snapshotData + '" alt="快照">' + markerHTML + '</div>';
           }
 
           return '<div class="tab-entry" data-url="' + escapeText(link.url) + '" data-title="' + escapeText(link.title || link.page || '') + '" data-page-count="' + pageCount + '" data-tags="' + escapeText(link.tags ? link.tags.map(t => t.text).join(' ') : '') + '">' +
@@ -4105,10 +4290,18 @@ document.addEventListener("DOMContentLoaded", () => {
       clickPoint = null,
       link = null,
       index = null,
-      visited = null
+      visited = null,
+      preserveGallery = false,
+      preserveScrollTop = null
     } = config;
 
     if (!dataUrl) return;
+
+    if (!preserveGallery && link) {
+      previewGalleryState = buildPreviewGalleryItems(link, index, visited);
+    } else if (!preserveGallery && !link) {
+      previewGalleryState = { items: [], currentIndex: -1 };
+    }
 
     let modal = document.getElementById('previewModalV2');
     if (!modal) {
@@ -4122,6 +4315,10 @@ document.addEventListener("DOMContentLoaded", () => {
     const detailHtml = mode === 'detail' && link
       ? buildPreviewCardDetailHtml(link, index, visited)
       : '';
+    const canNavigate = previewGalleryState.currentIndex >= 0 && previewGalleryState.items.length > 1;
+    const isAtStart = !canNavigate || previewGalleryState.currentIndex <= 0;
+    const isAtEnd = !canNavigate || previewGalleryState.currentIndex >= previewGalleryState.items.length - 1;
+
 
     modal.innerHTML = `
       <div class="preview-scroll-layer">
@@ -4136,24 +4333,36 @@ document.addEventListener("DOMContentLoaded", () => {
       </div>
     `;
 
-    modal.onclick = () => {
-      hidePreviewModalV2();
-    };
-
     const scrollLayer = modal.querySelector('.preview-scroll-layer');
     const shell = modal.querySelector('.preview-shell');
     const container = modal.querySelector('.preview-container');
-    const previewImage = modal.querySelector('.preview-image-frame img');
+    const imageFrame = modal.querySelector('.preview-image-frame');
+    modal.onclick = async (e) => {
+      if (isPreviewInteractiveTarget(e.target)) return;
 
-    if (scrollLayer) {
-      scrollLayer.addEventListener('click', () => hidePreviewModalV2());
-    }
-    if (shell) {
-      shell.addEventListener('click', (e) => e.stopPropagation());
-    }
-    if (previewImage) {
-      previewImage.addEventListener('click', () => hidePreviewModalV2());
-    }
+      const clickX = typeof e.clientX === 'number' ? e.clientX : 0;
+      const edgeRatio = 0.32;
+      const imageZoneTarget = e.target instanceof Element ? e.target.closest('.preview-image-frame') : null;
+      const activeRect = imageZoneTarget
+        ? imageFrame?.getBoundingClientRect?.()
+        : shell?.getBoundingClientRect?.();
+      const baseLeft = activeRect?.left ?? 0;
+      const baseWidth = activeRect?.width ?? (window.innerWidth || document.documentElement.clientWidth || 1);
+      const leftBoundary = baseLeft + (baseWidth * edgeRatio);
+      const rightBoundary = baseLeft + (baseWidth * (1 - edgeRatio));
+
+      if (canNavigate && clickX <= leftBoundary && !isAtStart) {
+        await navigatePreviewGallery(-1);
+        return;
+      }
+
+      if (canNavigate && clickX >= rightBoundary && !isAtEnd) {
+        await navigatePreviewGallery(1);
+        return;
+      }
+
+      hidePreviewModalV2();
+    };
 
     const marker = createSnapshotMarker(clickPoint);
     if (marker && container) {
@@ -4220,8 +4429,23 @@ document.addEventListener("DOMContentLoaded", () => {
       const editCardBtn = modal.querySelector('.preview-detail-card [data-action="edit-card-tags"]');
       if (editCardBtn) {
         editCardBtn.addEventListener('click', () => {
-          hidePreviewModalV2();
-          showTagDialog(link.id);
+          const scrollTop = modal.querySelector('.preview-scroll-layer')?.scrollTop || 0;
+          showTagDialog(link.id, {
+            zIndex: 25000,
+            afterSave: (updatedLink) => {
+              const visited = getVisitedLinks();
+              showPreviewModalV2({
+                mode: 'detail',
+                dataUrl,
+                clickPoint: updatedLink.clickPoint,
+                link: updatedLink,
+                index,
+                visited,
+                preserveGallery: true,
+                preserveScrollTop: scrollTop
+              });
+            }
+          });
         });
       }
 
@@ -4244,11 +4468,9 @@ document.addEventListener("DOMContentLoaded", () => {
 
     setPreviewDetailLock(true);
     modal.classList.add('show');
-    modal.scrollTop = 0;
     requestAnimationFrame(() => {
-      modal.scrollTop = 0;
       if (scrollLayer) {
-        scrollLayer.scrollTop = 0;
+        scrollLayer.scrollTop = Number.isFinite(preserveScrollTop) ? preserveScrollTop : 0;
       }
     });
   }
@@ -4314,6 +4536,20 @@ document.addEventListener("DOMContentLoaded", () => {
 
   // 快捷键支持：按下 Esc 关闭预览
   window.addEventListener('keydown', (e) => {
+    const modalV2 = document.getElementById('previewModalV2');
+    if (modalV2 && modalV2.classList.contains('show')) {
+      if (e.key === 'ArrowLeft') {
+        e.preventDefault();
+        navigatePreviewGallery(-1);
+        return;
+      }
+      if (e.key === 'ArrowRight') {
+        e.preventDefault();
+        navigatePreviewGallery(1);
+        return;
+      }
+    }
+
     if (e.key === 'Escape') {
       const modal = document.getElementById('previewModal');
       if (modal && modal.classList.contains('show')) {
