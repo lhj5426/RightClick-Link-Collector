@@ -2967,7 +2967,9 @@ document.addEventListener("DOMContentLoaded", () => {
           data.lastVisited = new Date().toISOString();
           visited[url] = data;
           localStorage.setItem(STORAGE_KEY, JSON.stringify(visited));
-          updateVisitInfo(el, data);
+          document.querySelectorAll('.tab-entry').forEach(entry => {
+            if (entry.dataset.url === url) updateVisitInfo(entry, data);
+          });
         };
 
         const updateVisitInfo = (el, data) => {
