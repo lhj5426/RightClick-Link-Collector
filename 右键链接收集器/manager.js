@@ -4248,10 +4248,7 @@ document.addEventListener("DOMContentLoaded", () => {
     }
     // 将关键字放入搜索框并触发过滤
     searchInput.value = keyword;
-    // 切换到"全部"视图以确保能看到所有匹配条目
-    currentView = 'all';
-    localStorage.setItem('currentView', 'all');
-    syncViewTabState();
+    // 保持当前视图不变，只在当前视图内执行过滤
     renderLinks();
     // 滚动到顶部
     window.scrollTo({ top: 0, behavior: 'smooth' });
