@@ -14,6 +14,7 @@ let unvisitedMode = "aggregate"; // "aggregate" 聚合模式, "inGroup" 组内�
 let currentSearchKeywords = []; // 当前搜索的多关键字
 let selectedLinkIds = new Set();
 const STORAGE_KEY = 'tabSaverVisitedLinks';
+const GROUP_COLLAPSE_STATE_KEY = 'tabSaverGroupCollapseStates';
 const DEFAULT_GROUPS = [];
 
 if (currentView === "thumbGrid") {
@@ -454,15 +455,74 @@ document.addEventListener("DOMContentLoaded", () => {
       window.history.replaceState({}, document.title, window.location.pathname);
     }
   }
+
+  function getStoredGroupCollapseStates() {
+    try {
+      const states = JSON.parse(localStorage.getItem(GROUP_COLLAPSE_STATE_KEY) || "{}");
+      return states && typeof states === "object" ? states : {};
+    } catch (error) {
+      return {};
+    }
+  }
+
+  function saveStoredGroupCollapseStates(states) {
+    localStorage.setItem(GROUP_COLLAPSE_STATE_KEY, JSON.stringify(states));
+  }
+
+  function getActiveGroupedView() {
+    if (currentView === "unvisited") {
+      const previousView = localStorage.getItem('previousView') || 'byDomain';
+      return ["byDomain", "byGroup", "byDate", "byNote"].includes(previousView) ? previousView : "byDomain";
+    }
+    return ["byDomain", "byGroup", "byDate", "byNote"].includes(currentView) ? currentView : "";
+  }
+
+  function buildGroupCollapseStateKey(viewName, groupKey) {
+    return viewName ? `${viewName}:${groupKey}` : "";
+  }
+
+  function getGroupCollapsedState(stateKey) {
+    if (!stateKey) return groupsCollapsed;
+    const states = getStoredGroupCollapseStates();
+    return Object.prototype.hasOwnProperty.call(states, stateKey) ? !!states[stateKey] : groupsCollapsed;
+  }
+
+  function setGroupCollapsedStateValue(stateKey, collapsed) {
+    if (!stateKey) return;
+    const states = getStoredGroupCollapseStates();
+    states[stateKey] = !!collapsed;
+    saveStoredGroupCollapseStates(states);
+  }
+
+  function setGroupCollapsedClasses(header, content, collapsed) {
+    header.classList.toggle("collapsed", collapsed);
+    if (content) {
+      content.classList.toggle("collapsed", collapsed);
+    }
+  }
+
+  function bindGroupCollapseState(header, content, stateKey) {
+    if (stateKey) {
+      header.dataset.groupStateKey = stateKey;
+    }
+
+    setGroupCollapsedClasses(header, content, getGroupCollapsedState(stateKey));
+
+    header.onclick = (e) => {
+      if (e.target instanceof Element && e.target.closest('.group-select-all')) return;
+      const nextCollapsed = !header.classList.contains("collapsed");
+      setGroupCollapsedClasses(header, content, nextCollapsed);
+      setGroupCollapsedStateValue(stateKey, nextCollapsed);
+    };
+  }
   
   // 应用折叠状态到所有分组
   function applyCollapsedState() {
-    if (groupsCollapsed) {
-      const allGroupHeaders = document.querySelectorAll(".group-header");
-      const allGroupContents = document.querySelectorAll(".group-content");
-      allGroupHeaders.forEach(header => header.classList.add("collapsed"));
-      allGroupContents.forEach(content => content.classList.add("collapsed"));
-    }
+    const allGroupHeaders = document.querySelectorAll(".group-header");
+    allGroupHeaders.forEach(header => {
+      const content = header.nextElementSibling;
+      setGroupCollapsedClasses(header, content, getGroupCollapsedState(header.dataset.groupStateKey || ""));
+    });
     // 更新按钮文字
     toggleGroupsBtn.textContent = groupsCollapsed ? "📂 展开分组" : "📂 折叠分组";
   }
@@ -962,6 +1022,7 @@ document.addEventListener("DOMContentLoaded", () => {
       renderUnvisitedView(visible, visited);
     }
     
+    applyCollapsedState();
     refreshGroupJumpOptions();
     updateFloatingToolPositions();
   }
@@ -978,6 +1039,7 @@ document.addEventListener("DOMContentLoaded", () => {
   
   // 渲染按域名分组视图
   function renderByDomainView(links, visited) {
+    const collapseView = getActiveGroupedView() || "byDomain";
     const groups = {};
     links.forEach(link => {
       const domain = getBaseDomain(link.url);
@@ -1003,16 +1065,10 @@ document.addEventListener("DOMContentLoaded", () => {
         </div>
         <span class="group-toggle">▾</span>
       `;
-      header.onclick = (e) => {
-        // 如果点击的是复选框，不处理折叠
-        if (e.target.classList.contains('group-select-all')) return;
-        header.classList.toggle("collapsed");
-        content.classList.toggle("collapsed");
-      };
-      
       const content = document.createElement("div");
       content.className = "group-content";
       if (isThumbnailMode()) content.classList.add("thumb-grid-host");
+      bindGroupCollapseState(header, content, buildGroupCollapseStateKey(collapseView, `domain:${domain}`));
       
       renderLinkCollection(content, sortedLinks, visited);
       
@@ -1027,6 +1083,7 @@ document.addEventListener("DOMContentLoaded", () => {
   
   // 渲染按分组视图
   function renderByGroupView(links, visited) {
+    const collapseView = getActiveGroupedView() || "byGroup";
     // 先显示无分组的链接
     const globalLinks = links.filter(link => !link.groupId);
     
@@ -1050,15 +1107,10 @@ document.addEventListener("DOMContentLoaded", () => {
           </div>
           <span class="group-toggle">▾</span>
         `;
-        header.onclick = (e) => {
-          if (e.target.classList.contains('group-select-all')) return;
-          header.classList.toggle("collapsed");
-          content.classList.toggle("collapsed");
-        };
-        
         const content = document.createElement("div");
         content.className = "group-content";
         if (isThumbnailMode()) content.classList.add("thumb-grid-host");
+        bindGroupCollapseState(header, content, buildGroupCollapseStateKey(collapseView, "group:global"));
         
         renderLinkCollection(content, sortedLinks, visited);
         
@@ -1094,15 +1146,10 @@ document.addEventListener("DOMContentLoaded", () => {
         </div>
         <span class="group-toggle">▾</span>
       `;
-      header.onclick = (e) => {
-        if (e.target.classList.contains('group-select-all')) return;
-        header.classList.toggle("collapsed");
-        content.classList.toggle("collapsed");
-      };
-      
       const content = document.createElement("div");
       content.className = "group-content";
       if (isThumbnailMode()) content.classList.add("thumb-grid-host");
+      bindGroupCollapseState(header, content, buildGroupCollapseStateKey(collapseView, `group:${group.id}`));
       
       renderLinkCollection(content, sortedLinks, visited);
       
@@ -1159,6 +1206,7 @@ document.addEventListener("DOMContentLoaded", () => {
   
   // 按日期分组渲染
   function renderByDateView(links, visited) {
+    const collapseView = getActiveGroupedView() || "byDate";
     const dateGroups = {};
     
     // 按日期分组
@@ -1200,15 +1248,10 @@ document.addEventListener("DOMContentLoaded", () => {
         </div>
         <span class="group-toggle">▾</span>
       `;
-      header.onclick = (e) => {
-        if (e.target.classList.contains('group-select-all')) return;
-        header.classList.toggle("collapsed");
-        content.classList.toggle("collapsed");
-      };
-      
       const content = document.createElement("div");
       content.className = "group-content";
       if (isThumbnailMode()) content.classList.add("thumb-grid-host");
+      bindGroupCollapseState(header, content, buildGroupCollapseStateKey(collapseView, `date:${dateKey}`));
       
       renderLinkCollection(content, sortedLinks, visited);
       
@@ -1223,6 +1266,7 @@ document.addEventListener("DOMContentLoaded", () => {
   
   // 按标签分组渲染
   function renderByTagsView(links, visited) {
+    const collapseView = getActiveGroupedView() || "byNote";
     // 收集所有出现过的标签
     const tagMap = new Map();
     const withoutTags = [];
@@ -1263,15 +1307,10 @@ document.addEventListener("DOMContentLoaded", () => {
           </div>
           <span class="group-toggle">▾</span>
         `;
-        header.onclick = (e) => {
-          if (e.target.classList.contains('group-select-all')) return;
-          header.classList.toggle("collapsed");
-          content.classList.toggle("collapsed");
-        };
-        
         const content = document.createElement("div");
         content.className = "group-content";
         if (isThumbnailMode()) content.classList.add("thumb-grid-host");
+        bindGroupCollapseState(header, content, buildGroupCollapseStateKey(collapseView, `tag:${tagText}`));
         
         renderLinkCollection(content, sortedGroupLinks, visited);
         
@@ -1301,15 +1340,10 @@ document.addEventListener("DOMContentLoaded", () => {
           </div>
           <span class="group-toggle">▾</span>
         `;
-        header.onclick = (e) => {
-          if (e.target.classList.contains('group-select-all')) return;
-          header.classList.toggle("collapsed");
-          content.classList.toggle("collapsed");
-        };
-        
         const content = document.createElement("div");
         content.className = "group-content";
         if (isThumbnailMode()) content.classList.add("thumb-grid-host");
+        bindGroupCollapseState(header, content, buildGroupCollapseStateKey(collapseView, "tag:__untagged__"));
         
         renderLinkCollection(content, sortedWithoutLinks, visited);
         
@@ -2103,9 +2137,9 @@ document.addEventListener("DOMContentLoaded", () => {
       if (!header) return;
       
       if (header.classList.contains("collapsed")) {
-        header.classList.remove("collapsed");
         const content = section.querySelector(".group-content");
-        if (content) content.classList.remove("collapsed");
+        setGroupCollapsedClasses(header, content, false);
+        setGroupCollapsedStateValue(header.dataset.groupStateKey || "", false);
       }
       
       section.scrollIntoView({ block: "start" });
@@ -2139,6 +2173,10 @@ document.addEventListener("DOMContentLoaded", () => {
       } else {
         content.classList.remove("collapsed");
       }
+    });
+
+    allGroupHeaders.forEach(header => {
+      setGroupCollapsedStateValue(header.dataset.groupStateKey || "", groupsCollapsed);
     });
     
     // 更新按钮文字
