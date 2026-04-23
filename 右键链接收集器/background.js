@@ -3,14 +3,67 @@ importScripts('db.js');
 
 let lastRightClickCache = null;
 
-function isExHentaiGalleryUrl(url) {
-  return /^https?:\/\/exhentai\.org\/g\/[^/]+\/[^/]+\/?$/i.test(String(url || '').trim());
+function isGalleryUrlWithPageCount(url) {
+  return /^https?:\/\/(?:exhentai|e-hentai)\.org\/g\/[^/]+\/[^/]+\/?$/i.test(String(url || '').trim());
 }
 
 function normalizePageCount(value) {
   const text = String(value || '').trim();
   const match = text.match(/(\d+)/);
   return match ? Number(match[1]) : null;
+}
+
+function normalizeGalleryTagText(value) {
+  return String(value || '').replace(/\s+/g, ' ').trim();
+}
+
+function normalizeGalleryTagLabel(value) {
+  return normalizeGalleryTagText(value).replace(/[:：]\s*$/, '');
+}
+
+function stripGalleryTagDecoration(node) {
+  if (!node) return '';
+  const clone = node.cloneNode(true);
+  if (typeof clone.querySelectorAll === 'function') {
+    clone.querySelectorAll('img, svg, [ehs-emoji], .ehs-emoji').forEach((el) => el.remove());
+  }
+  return normalizeGalleryTagText(clone.textContent || '');
+}
+
+function getGalleryTagStyle(label) {
+  const normalizedLabel = normalizeGalleryTagLabel(label);
+  const compactLabel = normalizedLabel.replace(/\s+/g, '').toLowerCase();
+  const styleMap = {
+    language: { color: '#2e7d32', textColor: '#ffffff' },
+    语言: { color: '#2e7d32', textColor: '#ffffff' },
+    parody: { color: '#6d4c41', textColor: '#ffffff' },
+    原作: { color: '#6d4c41', textColor: '#ffffff' },
+    artist: { color: '#1565c0', textColor: '#ffffff' },
+    艺术家: { color: '#1565c0', textColor: '#ffffff' },
+    female: { color: '#c2185b', textColor: '#ffffff' },
+    女性: { color: '#c2185b', textColor: '#ffffff' },
+    male: { color: '#00838f', textColor: '#ffffff' },
+    男性: { color: '#00838f', textColor: '#ffffff' },
+    other: { color: '#5d4037', textColor: '#ffffff' },
+    其他: { color: '#5d4037', textColor: '#ffffff' },
+    group: { color: '#7b1fa2', textColor: '#ffffff' },
+    混合: { color: '#7b1fa2', textColor: '#ffffff' },
+    character: { color: '#ef6c00', textColor: '#ffffff' },
+    角色: { color: '#ef6c00', textColor: '#ffffff' },
+    cosplayer: { color: '#6a1b9a', textColor: '#ffffff' },
+    同人志作者: { color: '#6a1b9a', textColor: '#ffffff' },
+    reclass: { color: '#455a64', textColor: '#ffffff' },
+    重新分类: { color: '#455a64', textColor: '#ffffff' }
+  };
+
+  return styleMap[compactLabel] || styleMap[normalizedLabel] || { color: '#546e7a', textColor: '#ffffff' };
+}
+
+function formatGalleryTagText(label, tagText) {
+  const finalLabel = normalizeGalleryTagLabel(label);
+  const finalTagText = normalizeGalleryTagText(tagText);
+  if (!finalTagText) return '';
+  return finalLabel ? `${finalLabel}: ${finalTagText}` : finalTagText;
 }
 
 function isPageCountLabelText(value) {
@@ -25,7 +78,7 @@ function looksLikePageCountValue(value) {
   return /\d+/.test(text) && (/[\u9875\u9801]/.test(text) || text.includes('pages') || text.includes('page'));
 }
 
-function extractExHentaiPageCountFromHtml(html) {
+function extractGalleryPageCountFromHtml(html) {
   const doc = new DOMParser().parseFromString(String(html || ''), 'text/html');
   const rows = Array.from(doc.querySelectorAll('tr'));
   for (const row of rows) {
@@ -41,8 +94,83 @@ function extractExHentaiPageCountFromHtml(html) {
   return null;
 }
 
-async function fetchExHentaiPageCount(url) {
-  if (!isExHentaiGalleryUrl(url)) return null;
+function extractGalleryTagsFromHtml(html) {
+  const doc = new DOMParser().parseFromString(String(html || ''), 'text/html');
+  const tagRoot = doc.querySelector('#taglist') || doc.querySelector('table');
+  if (!tagRoot) return [];
+
+  const tags = [];
+  const seen = new Set();
+  const rows = Array.from(tagRoot.querySelectorAll('tr'));
+
+  rows.forEach((row) => {
+    const cells = row.querySelectorAll('td');
+    if (cells.length < 2) return;
+
+    const label = normalizeGalleryTagLabel(cells[0].innerText || cells[0].textContent || '');
+    if (!label) return;
+
+    const style = getGalleryTagStyle(label);
+    const anchors = Array.from(cells[1].querySelectorAll('a[href*="/tag/"]'));
+    anchors.forEach((anchor) => {
+      const rawHref = anchor.getAttribute('href') || '';
+      const visibleText = stripGalleryTagDecoration(anchor) || normalizeGalleryTagText(anchor.getAttribute('ehs-tag') || '');
+      const dedupeKey = rawHref || `${label}::${visibleText}`;
+      const tagText = formatGalleryTagText(label, visibleText);
+      if (!tagText || seen.has(dedupeKey)) return;
+
+      seen.add(dedupeKey);
+      tags.push({
+        text: tagText,
+        color: style.color,
+        textColor: style.textColor
+      });
+    });
+  });
+
+  return tags;
+}
+
+function buildGalleryTagsFromRecords(records) {
+  if (!Array.isArray(records) || records.length === 0) return [];
+
+  return records
+    .map((record) => {
+      const label = normalizeGalleryTagLabel(record?.label);
+      const tagText = formatGalleryTagText(label, record?.text);
+      if (!tagText) return null;
+
+      const style = getGalleryTagStyle(label);
+      return {
+        text: tagText,
+        color: style.color,
+        textColor: style.textColor
+      };
+    })
+    .filter(Boolean);
+}
+
+function mergeTagItems(existingTags, incomingTags) {
+  const merged = [];
+  const seen = new Set();
+
+  [...(Array.isArray(existingTags) ? existingTags : []), ...(Array.isArray(incomingTags) ? incomingTags : [])].forEach((tag) => {
+    const text = normalizeGalleryTagText(tag?.text);
+    if (!text || seen.has(text)) return;
+
+    seen.add(text);
+    merged.push({
+      text,
+      color: tag?.color || '#546e7a',
+      textColor: tag?.textColor || '#ffffff'
+    });
+  });
+
+  return merged;
+}
+
+async function fetchGalleryMetadata(url) {
+  if (!isGalleryUrlWithPageCount(url)) return null;
   try {
     const response = await fetch(url, {
       method: 'GET',
@@ -51,9 +179,12 @@ async function fetchExHentaiPageCount(url) {
     });
     if (!response.ok) return null;
     const html = await response.text();
-    return extractExHentaiPageCountFromHtml(html);
+    return {
+      pageCount: extractGalleryPageCountFromHtml(html),
+      tags: extractGalleryTagsFromHtml(html)
+    };
   } catch (err) {
-    console.warn('璇诲彇 ExHentai 椤垫暟澶辫触:', err);
+    console.warn('Failed to read gallery metadata:', err);
     return null;
   }
 }
@@ -284,7 +415,7 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
       desc: "",
       hasSnapshot: false
     };
-    const shouldExtractExHentaiPageCount = isExHentaiGalleryUrl(savedUrl);
+    const shouldExtractGalleryPageCount = isGalleryUrlWithPageCount(savedUrl);
 
     // 鑾峰彇鍒嗙粍鍚嶇О鍜岄鑹诧紙鐙珛鑾峰彇锛岀‘淇濅笉褰卞搷淇濆瓨娴佺▼锛?
     let groupName = "\u5168\u5c40\uff08\u65e0\u5206\u7ec4\uff09";
@@ -329,7 +460,7 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
       console.warn("璇诲彇瀛樺偍淇℃伅澶辫触:", e);
     }
 
-    // === 姝ラ1锛氱嫭绔嬫埅鍙栧揩鐓?===
+    // === 步骤 1：独立截取快照 ===
     let snapshotDataUrl = null;
     if (tab && tab.id) {
       try {
@@ -345,12 +476,20 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
       }
     }
 
-    // === 姝ラ2锛氱嫭绔嬫墽琛岃剼鏈幏鍙栭〉闈㈡弿杩板拰瑙嗗彛淇℃伅 ===
+    // === 步骤 2：独立执行脚本获取页面信息 ===
     if (tab && tab.id) {
       try {
         const scriptResults = await chrome.scripting.executeScript({
           target: { tabId: tab.id },
           func: () => {
+            const normalizeGalleryTagText = (value) => String(value || '').replace(/\s+/g, ' ').trim();
+            const normalizeGalleryTagLabel = (value) => normalizeGalleryTagText(value).replace(/[:：]\s*$/, '');
+            const stripGalleryTagDecoration = (node) => {
+              if (!node) return '';
+              const clone = node.cloneNode(true);
+              clone.querySelectorAll('img, svg, [ehs-emoji], .ehs-emoji').forEach((el) => el.remove());
+              return normalizeGalleryTagText(clone.textContent || '');
+            };
             const normalizePageCount = (value) => {
               const text = String(value || '').trim();
               const match = text.match(/(\d+)/);
@@ -380,6 +519,35 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
               }
               return null;
             };
+            const extractGalleryTagRecords = () => {
+              const tagRoot = document.querySelector('#taglist') || document.querySelector('table');
+              if (!tagRoot) return [];
+
+              const records = [];
+              const seen = new Set();
+              const rows = Array.from(tagRoot.querySelectorAll('tr'));
+
+              rows.forEach((row) => {
+                const cells = row.querySelectorAll('td');
+                if (cells.length < 2) return;
+
+                const label = normalizeGalleryTagLabel(cells[0].innerText || cells[0].textContent || '');
+                if (!label) return;
+
+                const anchors = Array.from(cells[1].querySelectorAll('a[href*="/tag/"]'));
+                anchors.forEach((anchor) => {
+                  const text = stripGalleryTagDecoration(anchor) || normalizeGalleryTagText(anchor.getAttribute('ehs-tag') || '');
+                  const href = anchor.getAttribute('href') || '';
+                  const key = href || `${label}::${text}`;
+                  if (!text || seen.has(key)) return;
+
+                  seen.add(key);
+                  records.push({ label, text });
+                });
+              });
+
+              return records;
+            };
             const meta = document.querySelector('meta[name="description"]') || 
                          document.querySelector('meta[property="og:description"]');
             return {
@@ -387,7 +555,8 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
               width: window.innerWidth,
               height: window.innerHeight,
               dpr: window.devicePixelRatio,
-              pageCount: /^https?:\/\/exhentai\.org\/g\/[^/]+\/[^/]+\/?$/i.test(location.href)
+              galleryTagRecords: extractGalleryTagRecords(),
+              pageCount: /^https?:\/\/(?:exhentai|e-hentai)\.org\/g\/[^/]+\/[^/]+\/?$/i.test(location.href)
                 ? extractPageCountFromDocument()
                 : null
             };
@@ -399,6 +568,9 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
           item.desc = res.desc || "";
           if (Number.isInteger(res.pageCount) && res.pageCount > 0) {
             item.pageCount = res.pageCount;
+          }
+          if (Array.isArray(res.galleryTagRecords) && res.galleryTagRecords.length > 0) {
+            item.tags = mergeTagItems(item.tags, buildGalleryTagsFromRecords(res.galleryTagRecords));
           }
           
           if (item.clickPoint) {
@@ -413,11 +585,16 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
       }
     }
 
-    // === 姝ラ3锛氫繚瀛橀摼鎺ワ紙鏈€鍏抽敭锛屽繀椤绘垚鍔燂級 ===
-    if (shouldExtractExHentaiPageCount && !Number.isInteger(item.pageCount)) {
-      const fetchedPageCount = await fetchExHentaiPageCount(savedUrl);
-      if (Number.isInteger(fetchedPageCount) && fetchedPageCount > 0) {
-        item.pageCount = fetchedPageCount;
+    // === 步骤 3：保存链接（最关键，必须成功） ===
+    if (shouldExtractGalleryPageCount && (!Number.isInteger(item.pageCount) || !Array.isArray(item.tags) || item.tags.length === 0)) {
+      const fetchedMetadata = await fetchGalleryMetadata(savedUrl);
+      if (fetchedMetadata) {
+        if (Number.isInteger(fetchedMetadata.pageCount) && fetchedMetadata.pageCount > 0 && !Number.isInteger(item.pageCount)) {
+          item.pageCount = fetchedMetadata.pageCount;
+        }
+        if ((!Array.isArray(item.tags) || item.tags.length === 0) && Array.isArray(fetchedMetadata.tags) && fetchedMetadata.tags.length > 0) {
+          item.tags = mergeTagItems(item.tags, fetchedMetadata.tags);
+        }
       }
     }
 
