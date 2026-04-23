@@ -2724,7 +2724,7 @@ document.addEventListener("DOMContentLoaded", () => {
       }
 
       return `
-        <div class="tab-entry" data-url="${escapeHtml(link.url)}" data-title="${escapeHtml(link.title || link.page || '')}" data-group-id="${link.groupId || ''}" data-page-count="${getPageCountValue(link)}" data-tags="${escapeHtml(link.tags ? link.tags.map(t=>t.text).join(' ') : '')}">
+        <div class="tab-entry" data-id="${link.id}" data-url="${escapeHtml(link.url)}" data-title="${escapeHtml(link.title || link.page || '')}" data-group-id="${link.groupId || ''}" data-page-count="${getPageCountValue(link)}" data-tags="${escapeHtml(link.tags ? link.tags.map(t=>t.text).join(' ') : '')}">
           <span class="tab-index">${index}</span>
           <input type="checkbox" class="tab-checkbox" onclick="window.updateSelectionState()">
           <div class="tab-content">
@@ -3026,6 +3026,13 @@ document.addEventListener("DOMContentLoaded", () => {
 
         const getVisitedLinks = () => JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}');
         const getMarkers = () => JSON.parse(localStorage.getItem(MARKERS_STORAGE_KEY) || '{}');
+        const getMarkerKey = (entryOrLink) => {
+          if (!entryOrLink) return '';
+          const id = entryOrLink.dataset ? entryOrLink.dataset.id : entryOrLink.id;
+          if (id !== undefined && id !== null && String(id)) return String(id);
+          const url = entryOrLink.dataset ? entryOrLink.dataset.url : entryOrLink.url;
+          return String(url || '');
+        };
         const getPageCountValue = (link) => {
           const value = Number(link && link.pageCount);
           return Number.isInteger(value) && value > 0 ? value : 0;
@@ -3060,25 +3067,26 @@ document.addEventListener("DOMContentLoaded", () => {
 
         window.saveMarker = (cb, type) => {
           const tabEntry = cb.closest('.tab-entry');
-          const url = tabEntry.dataset.url;
+          const markerKey = getMarkerKey(tabEntry);
           const markers = getMarkers();
-          if (!markers[url]) markers[url] = {};
+          if (!markerKey) return;
+          if (!markers[markerKey]) markers[markerKey] = {};
 
           if (cb.checked) {
             const otherType = type === 'downloaded' ? 'skipped' : 'downloaded';
-            markers[url][otherType] = false;
+            markers[markerKey][otherType] = false;
           }
 
-          markers[url][type] = cb.checked;
+          markers[markerKey][type] = cb.checked;
           localStorage.setItem(MARKERS_STORAGE_KEY, JSON.stringify(markers));
 
-          // 同步页面上所有同 URL 的条目（主列表 + 大图详情卡片）
+          // 只同步当前条目本身，以及它对应的详情卡片
           document.querySelectorAll('.tab-entry').forEach(entry => {
-            if (entry.dataset.url !== url) return;
+            if (getMarkerKey(entry) !== markerKey) return;
             const dlCb = entry.querySelector('.marker-downloaded-cb');
             const skCb = entry.querySelector('.marker-skipped-cb');
-            if (dlCb) dlCb.checked = !!markers[url].downloaded;
-            if (skCb) skCb.checked = !!markers[url].skipped;
+            if (dlCb) dlCb.checked = !!markers[markerKey].downloaded;
+            if (skCb) skCb.checked = !!markers[markerKey].skipped;
           });
         };
 
@@ -3155,10 +3163,30 @@ document.addEventListener("DOMContentLoaded", () => {
           });
         };
 
+        const toUniqueEntries = (items) => {
+          const unique = [];
+          const seen = new Set();
+          Array.from(items || []).forEach((item) => {
+            if (!item) return;
+            const key = getMarkerKey(item);
+            if (!key || seen.has(key)) return;
+            seen.add(key);
+            unique.push(item);
+          });
+          return unique;
+        };
+
         window.openTabsBySelector = (sel) => {
-          const entries = sel === '.tab-checkbox:checked' ? Array.from(document.querySelectorAll(sel)).map(c => c.closest('.tab-entry')) : document.querySelectorAll(sel);
+          let entries;
+          if (sel === '.tab-entry') {
+            entries = toUniqueEntries(ALL_TABS_DATA.map(link => ({ dataset: { id: String(link.id), url: link.url || '' } })));
+          } else if (sel === '.tab-checkbox:checked') {
+            entries = toUniqueEntries(Array.from(document.querySelectorAll(sel)).map(c => c.closest('.tab-entry')));
+          } else {
+            entries = toUniqueEntries(document.querySelectorAll(sel));
+          }
           entries.forEach(e => {
-            if (!e.classList.contains('hidden')) {
+            if (!e.classList || !e.classList.contains('hidden')) {
               window.open(e.dataset.url, '_blank');
               window.recordVisit(e);
             }
@@ -3447,7 +3475,7 @@ document.addEventListener("DOMContentLoaded", () => {
             snapshotHTML = '<div class="tab-snapshot has-image" data-id="' + link.id + '" onclick="window.showPreview(this)"><img src="' + snapshotData + '" alt="快照">' + markerHTML + '</div>';
           }
 
-          return '<div class="tab-entry" data-url="' + escapeText(link.url) + '" data-title="' + escapeText(link.title || link.page || '') + '" data-page-count="' + pageCount + '" data-tags="' + escapeText(link.tags ? link.tags.map(t => t.text).join(' ') : '') + '">' +
+          return '<div class="tab-entry" data-id="' + link.id + '" data-url="' + escapeText(link.url) + '" data-title="' + escapeText(link.title || link.page || '') + '" data-page-count="' + pageCount + '" data-tags="' + escapeText(link.tags ? link.tags.map(t => t.text).join(' ') : '') + '">' +
             '<span class="tab-index">' + (i + 1) + '</span>' +
             '<input type="checkbox" class="tab-checkbox" onclick="window.updateSelectionState()">' +
             '<div class="tab-content">' +
@@ -3629,11 +3657,20 @@ document.addEventListener("DOMContentLoaded", () => {
           let filteredLinks;
           
           if (type === 'Downloaded') {
-            filteredLinks = ALL_TABS_DATA.filter(t => markers[t.url] && markers[t.url].downloaded);
+            filteredLinks = ALL_TABS_DATA.filter(t => {
+              const markerKey = getMarkerKey(t);
+              return markerKey && markers[markerKey] && markers[markerKey].downloaded;
+            });
           } else if (type === 'NotDownloaded') {
-            filteredLinks = ALL_TABS_DATA.filter(t => markers[t.url] && markers[t.url].skipped);
+            filteredLinks = ALL_TABS_DATA.filter(t => {
+              const markerKey = getMarkerKey(t);
+              return markerKey && markers[markerKey] && markers[markerKey].skipped;
+            });
           } else { // Unchecked
-            filteredLinks = ALL_TABS_DATA.filter(t => !markers[t.url] || (!markers[t.url].downloaded && !markers[t.url].skipped));
+            filteredLinks = ALL_TABS_DATA.filter(t => {
+              const markerKey = getMarkerKey(t);
+              return !markerKey || !markers[markerKey] || (!markers[markerKey].downloaded && !markers[markerKey].skipped);
+            });
           }
 
           if (filteredLinks.length === 0) {
@@ -3704,10 +3741,11 @@ document.addEventListener("DOMContentLoaded", () => {
           const markers = getMarkers();
           base.querySelectorAll('.tab-entry').forEach(e => {
             const url = e.dataset.url;
+            const markerKey = getMarkerKey(e);
             if (visited[url]) updateVisitInfo(e, visited[url]);
-            if (markers[url]) {
-              if (markers[url].downloaded) e.querySelector('.marker-downloaded-cb').checked = true;
-              if (markers[url].skipped) e.querySelector('.marker-skipped-cb').checked = true;
+            if (markerKey && markers[markerKey]) {
+              if (markers[markerKey].downloaded) e.querySelector('.marker-downloaded-cb').checked = true;
+              if (markers[markerKey].skipped) e.querySelector('.marker-skipped-cb').checked = true;
             }
           });
         }
