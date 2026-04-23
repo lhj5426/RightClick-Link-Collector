@@ -319,15 +319,11 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
         )
       );
       
-      // 鍗充娇鑴氭湰鎵ц澶辫触涔熶繚鐣欏熀纭€浣嶇疆淇℃伅
-      if (useLastClick || info.x !== undefined) {
-        item.clickPoint = {
-          x: useLastClick ? lastClick.x : (info.x || 0),
-          y: useLastClick ? lastClick.y : (info.y || 0),
-          viewportW: useLastClick ? (lastClick.viewportW || 0) : 0,
-          viewportH: useLastClick ? (lastClick.viewportH || 0) : 0,
-          dpr: useLastClick ? (lastClick.dpr || 1) : 1
-        };
+      if (useLastClick) {
+        const lastClickPoint = createPartialClickPoint(lastClick);
+        if (lastClickPoint) {
+          item.clickPoint = lastClickPoint;
+        }
       }
     } catch (e) {
       console.warn("璇诲彇瀛樺偍淇℃伅澶辫触:", e);
@@ -405,19 +401,10 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
             item.pageCount = res.pageCount;
           }
           
-          // 鐢ㄨ剼鏈幏鍙栫殑瑙嗗彛淇℃伅琛ュ叏 clickPoint
           if (item.clickPoint) {
-            item.clickPoint.viewportW = res.width;
-            item.clickPoint.viewportH = res.height;
-            item.clickPoint.dpr = res.dpr;
+            item.clickPoint = finalizeClickPoint(item.clickPoint, res);
           } else {
-            item.clickPoint = {
-              x: info.x || 0,
-              y: info.y || 0,
-              viewportW: res.width,
-              viewportH: res.height,
-              dpr: res.dpr
-            };
+            item.clickPoint = createClickPointFromMenuInfo(info, res);
           }
           console.log("鉁?椤甸潰淇℃伅鑾峰彇鎴愬姛");
         }
@@ -434,7 +421,9 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
       }
     }
 
-    await saveLinkItem(item, tab?.id, groupName, snapshotDataUrl, groupColor, groupTextColor);
+    item.clickPoint = finalizeClickPoint(item.clickPoint);
+
+    await saveLinkItem(item, tab?.id, groupName, snapshotDataUrl, groupColor, groupTextColor, tab?.url);
     
   } catch (err) {
     console.error("鉂?contextMenus.onClicked 涓ラ噸閿欒:", err);
@@ -479,8 +468,104 @@ function chromeStorageGet(keys) {
   });
 }
 
+function toFiniteNumber(value) {
+  const num = typeof value === 'number' ? value : Number(value);
+  return Number.isFinite(num) ? num : null;
+}
+
+function createPartialClickPoint(candidate) {
+  if (!candidate || typeof candidate !== 'object') return null;
+
+  const x = toFiniteNumber(candidate.x);
+  const y = toFiniteNumber(candidate.y);
+  if (x === null || y === null) return null;
+
+  const viewportW = toFiniteNumber(candidate.viewportW);
+  const viewportH = toFiniteNumber(candidate.viewportH);
+  const dpr = toFiniteNumber(candidate.dpr);
+
+  return {
+    x,
+    y,
+    viewportW: viewportW && viewportW > 0 ? viewportW : 0,
+    viewportH: viewportH && viewportH > 0 ? viewportH : 0,
+    dpr: dpr && dpr > 0 ? dpr : 1
+  };
+}
+
+function createClickPointFromMenuInfo(info, viewportInfo) {
+  const x = toFiniteNumber(info?.x);
+  const y = toFiniteNumber(info?.y);
+  const viewportW = toFiniteNumber(viewportInfo?.width ?? viewportInfo?.viewportW);
+  const viewportH = toFiniteNumber(viewportInfo?.height ?? viewportInfo?.viewportH);
+  const dpr = toFiniteNumber(viewportInfo?.dpr);
+
+  if (x === null || y === null) return null;
+  if (viewportW === null || viewportW <= 0 || viewportH === null || viewportH <= 0) return null;
+
+  return {
+    x,
+    y,
+    viewportW,
+    viewportH,
+    dpr: dpr && dpr > 0 ? dpr : 1
+  };
+}
+
+function finalizeClickPoint(candidate, viewportInfo) {
+  const point = createPartialClickPoint(candidate);
+  if (!point) return null;
+
+  const viewportW = toFiniteNumber(viewportInfo?.width ?? viewportInfo?.viewportW ?? point.viewportW);
+  const viewportH = toFiniteNumber(viewportInfo?.height ?? viewportInfo?.viewportH ?? point.viewportH);
+  const dpr = toFiniteNumber(viewportInfo?.dpr ?? point.dpr);
+
+  if (viewportW === null || viewportW <= 0 || viewportH === null || viewportH <= 0) return null;
+
+  return {
+    x: point.x,
+    y: point.y,
+    viewportW,
+    viewportH,
+    dpr: dpr && dpr > 0 ? dpr : 1
+  };
+}
+
+function isInjectablePageUrl(url) {
+  return /^(https?|file):/i.test(String(url || '').trim());
+}
+
+async function sendNotificationToTab(tabId, tabUrl, payload) {
+  if (!tabId) return false;
+
+  try {
+    await chrome.tabs.sendMessage(tabId, payload);
+    return true;
+  } catch (error) {
+    const message = String(error?.message || error || '');
+    console.warn("页面通知发送失败:", message);
+
+    if (!message.includes('Receiving end does not exist') || !isInjectablePageUrl(tabUrl)) {
+      return false;
+    }
+
+    try {
+      await chrome.scripting.executeScript({
+        target: { tabId },
+        files: ['content.js']
+      });
+      await chrome.tabs.sendMessage(tabId, payload);
+      console.log("页面通知重试发送成功");
+      return true;
+    } catch (retryError) {
+      console.warn("页面通知重试失败:", retryError?.message || retryError);
+      return false;
+    }
+  }
+}
+
 // 淇濆瓨閾炬帴鍒板瓨鍌紙Promise 鐗堬紝纭繚鍙 await锛?
-function saveLinkItem(item, tabId, groupName = "\u5168\u5c40\uff08\u65e0\u5206\u7ec4\uff09", snapshotDataUrl = null, groupColor = "#ebf8ff", groupTextColor = "#1967d2") {
+function saveLinkItem(item, tabId, groupName = "\u5168\u5c40\uff08\u65e0\u5206\u7ec4\uff09", snapshotDataUrl = null, groupColor = "#ebf8ff", groupTextColor = "#1967d2", tabUrl = "") {
   return new Promise((resolve, reject) => {
     chrome.storage.local.get({ links: [] }, (res) => {
       if (chrome.runtime.lastError) {
@@ -504,8 +589,8 @@ function saveLinkItem(item, tabId, groupName = "\u5168\u5c40\uff08\u65e0\u5206\u
         // 鍙戦€侀〉闈㈤€氱煡锛堟樉绀哄垎缁勫悕銆佹椂闂淬€佹埅鍥剧姸鎬併€佺缉鐣ュ浘锛?
         if (tabId) {
           // 鑷姩鍏抽棴鏍囩椤甸€昏緫 - 鑾峰彇閰嶇疆骞朵紶閫掔粰 content script
-          chrome.storage.local.get({ autoCloseTab: false }, (data) => {
-            chrome.tabs.sendMessage(tabId, {
+          chrome.storage.local.get({ autoCloseTab: false }, async (data) => {
+            const notificationPayload = {
               action: 'showNotification',
               title: item.title,
               url: item.url,
@@ -518,10 +603,11 @@ function saveLinkItem(item, tabId, groupName = "\u5168\u5c40\uff08\u65e0\u5206\u
               clickPoint: item.clickPoint || null,
               autoClose: data.autoCloseTab,
               totalCount: links.length // 浼犻€掑綋鍓嶆€绘潯鏁?
-            }).catch(() => {
-              console.log("鈿狅笍 椤甸潰閫氱煡鍙戦€佸け璐ワ紙鍙兘鏄壒娈婇〉闈級");
-            });
+            };
+            await sendNotificationToTab(tabId, tabUrl, notificationPayload);
+            resolve();
           });
+          return;
         }
 
 
