@@ -1,15 +1,59 @@
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.action === 'showNotification') {
-    showToast(message.title, message.url, message.groupName, message.date, message.hasSnapshot, message.snapshotDataUrl, message.autoClose, message.totalCount, message.groupColor, message.groupTextColor);
+    showToast(message.title, message.url, message.groupName, message.date, message.hasSnapshot, message.snapshotDataUrl, message.autoClose, message.totalCount, message.groupColor, message.groupTextColor, message.clickPoint);
   }
 });
 
-function showToast(title, url, groupName, date, hasSnapshot, snapshotDataUrl, autoClose, totalCount, groupColor, explicitTextColor) {
-  // 防止重复创建样式
-  if (!document.getElementById('link-collector-toast-style')) {
-    const style = document.createElement('style');
+function createToastSnapshotMarker(clickPoint) {
+  if (!clickPoint) return null;
+  const { x, y, viewportW, viewportH } = clickPoint;
+  if (!viewportW || !viewportH) return null;
+
+  const marker = document.createElement('div');
+  marker.className = 'link-collector-toast-marker';
+  marker.title = `x:${x}, y:${y}`;
+
+  const label = document.createElement('div');
+  label.className = 'link-collector-toast-marker-label';
+  label.textContent = `${Math.round(x)},${Math.round(y)}`;
+  marker.appendChild(label);
+  return marker;
+}
+
+function positionToastMarker(marker, clickPoint, imageEl, containerEl) {
+  if (!marker || !clickPoint || !imageEl || !containerEl) return;
+  const { x, y, viewportW, viewportH } = clickPoint;
+  if (!viewportW || !viewportH) return;
+
+  const updatePosition = () => {
+    const imageRect = imageEl.getBoundingClientRect();
+    const containerRect = containerEl.getBoundingClientRect();
+    if (!imageRect.width || !imageRect.height || !containerRect.width || !containerRect.height) return;
+
+    const left = (imageRect.left - containerRect.left) + ((x / viewportW) * imageRect.width);
+    const top = (imageRect.top - containerRect.top) + ((y / viewportH) * imageRect.height);
+    marker.style.left = `${left}px`;
+    marker.style.top = `${top}px`;
+  };
+
+  if (imageEl.complete) {
+    updatePosition();
+  } else {
+    imageEl.addEventListener('load', updatePosition, { once: true });
+  }
+
+  requestAnimationFrame(updatePosition);
+}
+
+function showToast(title, url, groupName, date, hasSnapshot, snapshotDataUrl, autoClose, totalCount, groupColor, explicitTextColor, clickPoint) {
+  // 样式每次都覆盖更新，避免扩展热重载后页面仍沿用旧样式
+  let style = document.getElementById('link-collector-toast-style');
+  if (!style) {
+    style = document.createElement('style');
     style.id = 'link-collector-toast-style';
-    style.textContent = `
+    document.head.appendChild(style);
+  }
+  style.textContent = `
       #link-collector-toast-container {
         position: fixed;
         top: 20px;
@@ -115,21 +159,50 @@ function showToast(title, url, groupName, date, hasSnapshot, snapshotDataUrl, au
       .link-collector-toast-thumb {
         margin-top: 10px;
         border-radius: 6px;
-        overflow: hidden;
+        overflow: visible;
         border: 1px solid rgba(0,0,0,0.08);
         width: 100%;
         display: flex;
         align-items: center;
         justify-content: center;
         background: #f8f9fa;
+        position: relative;
+        padding: 8px;
+        box-sizing: border-box;
       }
       .link-collector-toast-thumb img {
         width: 100%;
         height: auto;
-        max-height: 160px;
-        object-fit: cover;
-        object-position: top;
+        max-height: none;
+        max-width: 100%;
+        object-fit: contain;
+        object-position: center;
         display: block;
+      }
+      .link-collector-toast-marker {
+        position: absolute;
+        width: 14px;
+        height: 14px;
+        background: #ff4444;
+        border-radius: 50%;
+        transform: translate(-50%, -50%);
+        pointer-events: none;
+        box-shadow: 0 0 8px rgba(0, 0, 0, 0.45);
+        border: 2px solid white;
+        z-index: 2;
+      }
+      .link-collector-toast-marker-label {
+        position: absolute;
+        left: 14px;
+        top: -10px;
+        padding: 2px 6px;
+        border-radius: 999px;
+        background: rgba(255, 255, 255, 0.94);
+        color: #111827;
+        font-size: 11px;
+        line-height: 1.2;
+        white-space: nowrap;
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.28);
       }
       .link-collector-toast-index {
         color: #2b6cb0;
@@ -160,8 +233,6 @@ function showToast(title, url, groupName, date, hasSnapshot, snapshotDataUrl, au
         to { transform: scaleX(0); }
       }
     `;
-    document.head.appendChild(style);
-  }
 
   let container = document.getElementById('link-collector-toast-container');
   if (!container) {
@@ -220,6 +291,16 @@ function showToast(title, url, groupName, date, hasSnapshot, snapshotDataUrl, au
   `;
 
   container.appendChild(toast);
+
+  if (snapshotDataUrl && clickPoint) {
+    const thumbContainer = toast.querySelector('.link-collector-toast-thumb');
+    const thumbImage = thumbContainer?.querySelector('img');
+    const marker = createToastSnapshotMarker(clickPoint);
+    if (thumbContainer && thumbImage && marker) {
+      thumbContainer.appendChild(marker);
+      positionToastMarker(marker, clickPoint, thumbImage, thumbContainer);
+    }
+  }
 
   // 触发动画
   const dismissTime = snapshotDataUrl ? 4000 : 3000;

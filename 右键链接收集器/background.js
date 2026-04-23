@@ -515,6 +515,7 @@ function saveLinkItem(item, tabId, groupName = "\u5168\u5c40\uff08\u65e0\u5206\u
               date: item.date,
               hasSnapshot: item.hasSnapshot,
               snapshotDataUrl: snapshotDataUrl,
+              clickPoint: item.clickPoint || null,
               autoClose: data.autoCloseTab,
               totalCount: links.length // 浼犻€掑綋鍓嶆€绘潯鏁?
             }).catch(() => {
