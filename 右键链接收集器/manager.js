@@ -654,14 +654,45 @@ document.addEventListener("DOMContentLoaded", () => {
 
   function createSnapshotMarker(clickPoint) {
     if (!clickPoint) return null;
-    const { x, y, viewportW, viewportH } = clickPoint;
+    const { x, y, viewportW, viewportH, source } = clickPoint;
     if (!viewportW || !viewportH) return null;
 
     const marker = document.createElement('div');
     marker.className = 'snapshot-marker';
     marker.style.left = `${(x / viewportW) * 100}%`;
     marker.style.top = `${(y / viewportH) * 100}%`;
+    marker.title = `x:${x}, y:${y}`;
+
+    const label = document.createElement('div');
+    label.className = 'snapshot-marker-label';
+    label.textContent = `${Math.round(x)},${Math.round(y)}`;
+    marker.appendChild(label);
     return marker;
+  }
+
+  function positionMarkerOnRenderedImage(marker, clickPoint, imageEl, containerEl) {
+    if (!marker || !clickPoint || !imageEl || !containerEl) return;
+    const { x, y, viewportW, viewportH } = clickPoint;
+    if (!viewportW || !viewportH) return;
+
+    const updatePosition = () => {
+      const imageRect = imageEl.getBoundingClientRect();
+      const containerRect = containerEl.getBoundingClientRect();
+      if (!imageRect.width || !imageRect.height || !containerRect.width || !containerRect.height) return;
+
+      const left = (imageRect.left - containerRect.left) + ((x / viewportW) * imageRect.width);
+      const top = (imageRect.top - containerRect.top) + ((y / viewportH) * imageRect.height);
+      marker.style.left = `${left}px`;
+      marker.style.top = `${top}px`;
+    };
+
+    if (imageEl.complete) {
+      updatePosition();
+    } else {
+      imageEl.addEventListener('load', updatePosition, { once: true });
+    }
+
+    requestAnimationFrame(updatePosition);
   }
 
   function getPreviewTagsHtml(tags) {
@@ -1465,6 +1496,8 @@ document.addEventListener("DOMContentLoaded", () => {
       const marker = createSnapshotMarker(link.clickPoint);
       if (marker) {
         media.appendChild(marker);
+        const imgEl = media.querySelector('img');
+        positionMarkerOnRenderedImage(marker, link.clickPoint, imgEl, media);
       }
 
       media.addEventListener('click', (e) => {
@@ -1607,6 +1640,7 @@ document.addEventListener("DOMContentLoaded", () => {
             const marker = createSnapshotMarker(link.clickPoint);
             if (marker) {
               snapshotEl.appendChild(marker);
+              positionMarkerOnRenderedImage(marker, link.clickPoint, img, snapshotEl);
             }
           }
         }
@@ -4374,6 +4408,7 @@ document.addEventListener("DOMContentLoaded", () => {
     const shell = modal.querySelector('.preview-shell');
     const container = modal.querySelector('.preview-container');
     const imageFrame = modal.querySelector('.preview-image-frame');
+    const previewImage = modal.querySelector('.preview-container img');
     modal.onclick = async (e) => {
       if (isPreviewInteractiveTarget(e.target)) return;
 
@@ -4406,6 +4441,7 @@ document.addEventListener("DOMContentLoaded", () => {
       marker.style.width = '20px';
       marker.style.height = '20px';
       container.appendChild(marker);
+      positionMarkerOnRenderedImage(marker, clickPoint, previewImage, container);
     }
 
     if (mode === 'detail' && link) {
@@ -4552,19 +4588,16 @@ document.addEventListener("DOMContentLoaded", () => {
     };
 
     const container = modal.querySelector('.preview-container');
+    const previewImage = modal.querySelector('#previewImage');
     
     // 添加点击位置标记
     if (clickPoint) {
-      const { x, y, viewportW, viewportH } = clickPoint;
-      if (viewportW && viewportH) {
-        const marker = document.createElement('div');
-        marker.className = 'snapshot-marker';
-        marker.style.left = `${(x / viewportW) * 100}%`;
-        marker.style.top = `${(y / viewportH) * 100}%`;
-        // 大图中的标记可以稍微大一点
+      const marker = createSnapshotMarker(clickPoint);
+      if (marker) {
         marker.style.width = '20px';
         marker.style.height = '20px';
         container.appendChild(marker);
+        positionMarkerOnRenderedImage(marker, clickPoint, previewImage, container);
       }
     }
     

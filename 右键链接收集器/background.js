@@ -1,6 +1,8 @@
 ﻿// background.js - create context menu for link + page; save items with metadata
 importScripts('db.js');
 
+let lastRightClickCache = null;
+
 function isExHentaiGalleryUrl(url) {
   return /^https?:\/\/exhentai\.org\/g\/[^/]+\/[^/]+\/?$/i.test(String(url || '').trim());
 }
@@ -164,6 +166,14 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.action === 'updateContextMenus') {
     createContextMenus();
     sendResponse({ success: true });
+  } else if (message.action === 'recordRightClick') {
+    lastRightClickCache = {
+      ...(message.coords || {}),
+      tabId: sender.tab?.id || null,
+      frameId: sender.frameId ?? 0
+    };
+    chrome.storage.local.set({ lastRightClick: lastRightClickCache });
+    sendResponse({ success: true });
   }
   return true;
 });
@@ -291,17 +301,32 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
       }
       
       // 棰勫厛璇诲彇鍙抽敭浣嶇疆淇℃伅
-      const lastClick = storageData.lastRightClick || {};
-      const useLastClick = lastClick.time && (Date.now() - lastClick.time < 30000);
+      const lastClick = lastRightClickCache || storageData.lastRightClick || {};
+      const normalizeComparableUrl = (value) => String(value || '').replace(/#.*$/, '');
+      const targetLinkUrl = normalizeComparableUrl(info.linkUrl || savedUrl);
+      const clickLinkUrl = normalizeComparableUrl(lastClick.linkUrl);
+      const tabUrlForCompare = normalizeComparableUrl(tab?.url);
+      const clickUrlForCompare = normalizeComparableUrl(lastClick.pageUrl);
+      const useLastClick = !!(
+        lastClick.time &&
+        (Date.now() - lastClick.time < 30000) &&
+        (
+          (targetLinkUrl && clickLinkUrl && targetLinkUrl === clickLinkUrl) ||
+          (
+            (!targetLinkUrl || !clickLinkUrl) &&
+            (!tabUrlForCompare || !clickUrlForCompare || tabUrlForCompare === clickUrlForCompare)
+          )
+        )
+      );
       
       // 鍗充娇鑴氭湰鎵ц澶辫触涔熶繚鐣欏熀纭€浣嶇疆淇℃伅
       if (useLastClick || info.x !== undefined) {
         item.clickPoint = {
           x: useLastClick ? lastClick.x : (info.x || 0),
           y: useLastClick ? lastClick.y : (info.y || 0),
-          viewportW: 0,
-          viewportH: 0,
-          dpr: 1
+          viewportW: useLastClick ? (lastClick.viewportW || 0) : 0,
+          viewportH: useLastClick ? (lastClick.viewportH || 0) : 0,
+          dpr: useLastClick ? (lastClick.dpr || 1) : 1
         };
       }
     } catch (e) {

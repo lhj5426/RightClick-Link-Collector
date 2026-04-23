@@ -243,12 +243,135 @@ function showToast(title, url, groupName, date, hasSnapshot, snapshotDataUrl, au
   }, dismissTime);
 }
 
-// 监听右键点击事件，记录位置以供快照标记使用
-window.addEventListener('contextmenu', (e) => {
-  const coords = {
+let lastRightPointerDownTime = 0;
+const RIGHT_CLICK_BRIDGE_MESSAGE = '__link_collector_right_click__';
+
+function getRightClickTopViewportMetrics() {
+  let viewportW = window.innerWidth || document.documentElement.clientWidth || 0;
+  let viewportH = window.innerHeight || document.documentElement.clientHeight || 0;
+
+  try {
+    if (window.top && window.top !== window) {
+      viewportW = window.top.innerWidth || viewportW;
+      viewportH = window.top.innerHeight || viewportH;
+    }
+  } catch (error) {
+    // 跨域 frame 时无法直接读取 top，保留当前 frame 视口作为兜底
+  }
+
+  return { viewportW, viewportH };
+}
+
+function persistRightClickPosition(coords) {
+  chrome.storage.local.set({ lastRightClick: coords });
+  try {
+    chrome.runtime.sendMessage({ action: 'recordRightClick', coords });
+  } catch (error) {
+    // 忽略后台暂时不可用的情况，storage 仍可作为兜底
+  }
+}
+
+function buildRightClickPosition(e, source) {
+  const anchor = e.target instanceof Element ? e.target.closest('a[href]') : null;
+  return {
     x: e.clientX,
     y: e.clientY,
-    time: Date.now()
+    time: Date.now(),
+    source,
+    pageUrl: location.href,
+    linkUrl: anchor ? anchor.href : "",
+    viewportW: window.innerWidth || document.documentElement.clientWidth || 0,
+    viewportH: window.innerHeight || document.documentElement.clientHeight || 0,
+    dpr: window.devicePixelRatio || 1
   };
-  chrome.storage.local.set({ lastRightClick: coords });
+}
+
+function forwardRightClickPositionToTop(coords) {
+  if (window === window.top) {
+    const { viewportW, viewportH } = getRightClickTopViewportMetrics();
+    persistRightClickPosition({
+      ...coords,
+      pageUrl: location.href,
+      viewportW,
+      viewportH
+    });
+    return;
+  }
+
+  try {
+    window.parent.postMessage({
+      type: RIGHT_CLICK_BRIDGE_MESSAGE,
+      coords
+    }, '*');
+  } catch (error) {
+    persistRightClickPosition(coords);
+  }
+}
+
+function storeRightClickPosition(e, source) {
+  const coords = buildRightClickPosition(e, source);
+  forwardRightClickPositionToTop(coords);
+}
+
+// 记录鼠标右键按下的第一落点，这个位置比 contextmenu 菜单弹出点更接近真实点击目标
+window.addEventListener('pointerdown', (e) => {
+  const isRightButton = e.button === 2;
+  const isCtrlLeftClick = e.button === 0 && e.ctrlKey;
+  if (!isRightButton && !isCtrlLeftClick) return;
+
+  lastRightPointerDownTime = Date.now();
+  storeRightClickPosition(e, 'pointerdown');
+}, true);
+
+// 保留 contextmenu 作为兜底，但不覆盖刚刚记录的首次按下位置
+window.addEventListener('contextmenu', (e) => {
+  if (Date.now() - lastRightPointerDownTime < 1200) return;
+  storeRightClickPosition(e, 'contextmenu');
+}, true);
+
+window.addEventListener('message', (e) => {
+  const data = e.data;
+  if (!data || data.type !== RIGHT_CLICK_BRIDGE_MESSAGE || !data.coords) return;
+  if (!e.source || e.source === window) return;
+
+  let frameRect = null;
+  const frameEls = document.querySelectorAll('iframe, frame');
+  for (const frameEl of frameEls) {
+    try {
+      if (frameEl.contentWindow === e.source) {
+        frameRect = frameEl.getBoundingClientRect();
+        break;
+      }
+    } catch (error) {
+      // 某些 frame 无法直接比较时继续尝试其他 frame
+    }
+  }
+
+  if (!frameRect) return;
+
+  const coords = {
+    ...data.coords,
+    x: (Number(data.coords.x) || 0) + frameRect.left,
+    y: (Number(data.coords.y) || 0) + frameRect.top
+  };
+
+  if (window === window.top) {
+    const { viewportW, viewportH } = getRightClickTopViewportMetrics();
+    persistRightClickPosition({
+      ...coords,
+      pageUrl: location.href,
+      viewportW,
+      viewportH
+    });
+    return;
+  }
+
+  try {
+    window.parent.postMessage({
+      type: RIGHT_CLICK_BRIDGE_MESSAGE,
+      coords
+    }, '*');
+  } catch (error) {
+    persistRightClickPosition(coords);
+  }
 }, true);
