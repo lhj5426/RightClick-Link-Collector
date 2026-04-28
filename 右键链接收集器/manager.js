@@ -2875,9 +2875,9 @@ document.addEventListener("DOMContentLoaded", () => {
         .view-button:hover { background: #f5f5f5; }
         .view-button.active { background: #2196F3; color: white; border-color: #2196F3; }
         .tabs-container { background: #fff; padding: 20px; border-radius: 8px; }
-        .tab-entry { padding: 15px; border-bottom: 1px solid #eee; display: flex; align-items: flex-start; gap: 12px; transition: background 0.2s; }
-        .tab-entry:hover { background: #f9f9f9; }
-        .tab-entry.selected { background: #e3f2fd; }
+        .tab-entry { padding: 15px; border: 2px solid #e3e7eb; border-radius: 6px; margin-bottom: 8px; display: flex; align-items: flex-start; gap: 12px; transition: background 0.2s, border-color 0.2s, box-shadow 0.2s; }
+        .tab-entry:hover { background: #f9f9f9; border-color: #4a90e2; box-shadow: 0 0 0 1px #4a90e2; }
+        .tab-entry.selected { background: #e3f2fd; border-color: #bbdefb; }
         .tab-entry.hidden { display: none; }
         .tab-index { min-width: 30px; text-align: right; font-weight: bold; color: #666; font-size: 14px; flex-shrink: 0; }
         .tab-checkbox { margin-top: 4px; cursor: pointer; flex-shrink: 0; }
