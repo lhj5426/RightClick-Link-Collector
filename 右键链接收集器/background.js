@@ -766,7 +766,7 @@ function saveLinkItem(item, tabId, groupName = "\u5168\u5c40\uff08\u65e0\u5206\u
         // 鍙戦€侀〉闈㈤€氱煡锛堟樉绀哄垎缁勫悕銆佹椂闂淬€佹埅鍥剧姸鎬併€佺缉鐣ュ浘锛?
         if (tabId) {
           // 鑷姩鍏抽棴鏍囩椤甸€昏緫 - 鑾峰彇閰嶇疆骞朵紶閫掔粰 content script
-          chrome.storage.local.get({ autoCloseTab: false }, async (data) => {
+          chrome.storage.local.get({ autoCloseTab: false, toastDurationSeconds: 3 }, async (data) => {
             const notificationPayload = {
               action: 'showNotification',
               title: item.title,
@@ -779,6 +779,7 @@ function saveLinkItem(item, tabId, groupName = "\u5168\u5c40\uff08\u65e0\u5206\u
               snapshotDataUrl: snapshotDataUrl,
               clickPoint: item.clickPoint || null,
               autoClose: data.autoCloseTab,
+              toastDurationSeconds: Math.min(5, Math.max(1, Number(data.toastDurationSeconds) || 3)),
               totalCount: links.length // 浼犻€掑綋鍓嶆€绘潯鏁?
             };
             await sendNotificationToTab(tabId, tabUrl, notificationPayload);

@@ -46,6 +46,7 @@ document.addEventListener("DOMContentLoaded", () => {
   const newGroupColor = document.getElementById("newGroupColor");
   const newGroupTextColor = document.getElementById("newGroupTextColor");
   const addGroupBtn = document.getElementById("addGroupBtn");
+  const toastDurationSelect = document.getElementById("toastDurationSelect");
   const autoCloseTabBtn = document.getElementById("autoCloseTabBtn");
   const groupJumpBtn = document.getElementById("groupJumpBtn");
   const groupJumpCount = document.getElementById("groupJumpCount");
@@ -406,7 +407,7 @@ document.addEventListener("DOMContentLoaded", () => {
   
   // 加载链接和分组
   function loadLinks() {
-    chrome.storage.local.get({ links: [], groups: DEFAULT_GROUPS, autoCloseTab: false }, (res) => {
+    chrome.storage.local.get({ links: [], groups: DEFAULT_GROUPS, autoCloseTab: false, toastDurationSeconds: 3 }, (res) => {
       allLinks = Array.isArray(res.links) ? res.links : [];
       
       // 迁移旧版 note 到 tags
@@ -429,6 +430,10 @@ document.addEventListener("DOMContentLoaded", () => {
       }
       
       allGroups = Array.isArray(res.groups) ? res.groups : DEFAULT_GROUPS;
+      if (toastDurationSelect) {
+        const duration = Math.min(5, Math.max(1, Number(res.toastDurationSeconds) || 3));
+        toastDurationSelect.value = String(duration);
+      }
       if (autoCloseTabBtn) {
         autoCloseTabBtn.checked = res.autoCloseTab;
       }
@@ -1774,15 +1779,31 @@ document.addEventListener("DOMContentLoaded", () => {
           
           <div style="margin-top: 15px; border-top: 1px solid var(--border); padding-top: 10px;">
             <div style="font-size: 13px; color: var(--text-muted); margin-bottom: 8px;">标签列表 (点击快速添加)：</div>
+            <div style="position: relative; margin-bottom: 10px;">
+              <input
+                type="text"
+                id="historicalTagSearchInput"
+                placeholder="搜索标签：空格分隔，匹配任意一个"
+                style="width: 100%; padding: 10px 42px 10px 12px; border: 2px solid var(--border); border-radius: 6px; font-size: 14px; box-sizing: border-box;"
+              >
+              <button
+                type="button"
+                id="historicalTagSearchClear"
+                title="清空搜索"
+                style="display: none; position: absolute; right: 10px; top: 50%; transform: translateY(-50%); width: 24px; height: 24px; border: none; background: transparent; color: #5f6368; font-size: 22px; line-height: 24px; cursor: pointer; padding: 0;"
+              >×</button>
+            </div>
             <div id="historicalTagsContainer" style="display: flex; flex-direction: column; gap: 8px; max-height: 180px; overflow-y: auto;">
               <!-- 历史标签渲染在此处 -->
             </div>
           </div>
           
-          <div style="display: flex; gap: 10px; justify-content: flex-end; margin-top: 25px;">
+          <div style="display: flex; gap: 10px; justify-content: flex-end; align-items: center; margin-top: 25px; flex-wrap: wrap;">
+            <div style="display: flex; gap: 10px; justify-content: flex-end; flex-wrap: wrap;">
             <button class="btn btn-secondary" id="tagDialogCancel">取消</button>
             <button class="btn btn-danger" id="clearTags">清空全标签</button>
             <button class="btn btn-success" id="confirmTags">保存</button>
+            </div>
           </div>
         </div>
       </div>
@@ -1795,6 +1816,8 @@ document.addEventListener("DOMContentLoaded", () => {
     const colorInput = dialog.querySelector('#tagColorInput');
     const textColorInput = dialog.querySelector('#tagTextColorInput');
     const historicalContainer = dialog.querySelector('#historicalTagsContainer');
+    const historicalTagSearchInput = dialog.querySelector('#historicalTagSearchInput');
+    const historicalTagSearchClear = dialog.querySelector('#historicalTagSearchClear');
     textInput.maxLength = 2048;
     
     // 收集所有已存在的标签以供快速选择
@@ -1882,6 +1905,39 @@ document.addEventListener("DOMContentLoaded", () => {
       section.appendChild(body);
       containerEl.appendChild(section);
     }
+
+    function renderHistoricalTags(searchText = '') {
+      const keyword = searchText.trim().toLowerCase();
+      const filteredTags = keyword
+        ? allExistingTags.filter(tag => {
+            const text = (tag.text || '').toLowerCase();
+            const keywords = keyword
+              .split(/\s+/)
+              .map(part => part.trim())
+              .filter(Boolean);
+
+            return keywords.length > 0 && keywords.some(part => text.includes(part));
+          })
+        : allExistingTags;
+
+      if (filteredTags.length === 0) {
+        historicalContainer.innerHTML = keyword
+          ? '<span style="font-size: 12px; color: var(--text-muted); font-style: italic;">没有找到匹配的标签</span>'
+          : '<span style="font-size: 12px; color: var(--text-muted); font-style: italic;">暂无可用标签</span>';
+        return;
+      }
+
+      historicalContainer.innerHTML = '';
+      const historicalTextTags = filteredTags.filter(tag => !isTagUrl(tag.text));
+      const historicalUrlTags = filteredTags.filter(tag => isTagUrl(tag.text));
+
+      renderTagSection(historicalContainer, '文字标签', historicalTextTags, { historical: true });
+      renderTagSection(historicalContainer, '网址标签', historicalUrlTags, { historical: true });
+    }
+
+    function updateHistoricalSearchClearButton() {
+      historicalTagSearchClear.style.display = historicalTagSearchInput.value.trim() ? 'block' : 'none';
+    }
     
     function renderEditTags() {
       container.innerHTML = '';
@@ -1939,46 +1995,7 @@ document.addEventListener("DOMContentLoaded", () => {
     
     renderEditTags();
     
-    // 渲染历史标签
-    if (allExistingTags.length === 0) {
-        historicalContainer.innerHTML = '<span style="font-size: 12px; color: var(--text-muted); font-style: italic;">暂无可用标签</span>';
-    } else {
-        historicalContainer.innerHTML = '';
-        const historicalTextTags = allExistingTags.filter(tag => !isTagUrl(tag.text));
-        const historicalUrlTags = allExistingTags.filter(tag => isTagUrl(tag.text));
-
-        renderTagSection(historicalContainer, '文字标签', historicalTextTags, { historical: true });
-        renderTagSection(historicalContainer, '网址标签', historicalUrlTags, { historical: true });
-
-        if (false) {
-        allExistingTags.forEach(tag => {
-            const span = document.createElement('span');
-            span.className = 'edit-tag-capsule';
-            span.style.background = tag.color;
-            const textC = tag.textColor || '#ffffff';
-            span.style.color = textC;
-            span.style.cursor = 'pointer';
-            span.style.opacity = '0.7';
-            span.title = '点击直接添加此标签';
-            span.textContent = tag.text;
-            
-            span.onmouseenter = () => span.style.opacity = '1';
-            span.onmouseleave = () => span.style.opacity = '0.7';
-            
-            span.addEventListener('click', () => {
-                const existingIndex = currentTags.findIndex(t => t.text === tag.text);
-                if (existingIndex >= 0) {
-                    currentTags[existingIndex].color = tag.color;
-                    currentTags[existingIndex].textColor = textC;
-                } else {
-                    currentTags.push({ text: tag.text, color: tag.color, textColor: textC });
-                }
-                renderEditTags();
-            });
-            historicalContainer.appendChild(span);
-        });
-        }
-    }
+    renderHistoricalTags();
 
     textInput.focus();
     
@@ -2006,6 +2023,17 @@ document.addEventListener("DOMContentLoaded", () => {
         addNewTag();
       }
     });
+    historicalTagSearchInput.addEventListener('input', (e) => {
+      updateHistoricalSearchClearButton();
+      renderHistoricalTags(e.target.value);
+    });
+    historicalTagSearchClear.addEventListener('click', () => {
+      historicalTagSearchInput.value = '';
+      updateHistoricalSearchClearButton();
+      renderHistoricalTags('');
+      historicalTagSearchInput.focus();
+    });
+    updateHistoricalSearchClearButton();
     
     dialog.querySelector('#tagDialogClose').addEventListener('click', () => dialog.remove());
     dialog.querySelector('#tagDialogCancel').addEventListener('click', () => dialog.remove());
@@ -2964,7 +2992,6 @@ document.addEventListener("DOMContentLoaded", () => {
         <button class="view-button active" data-view="recent">最新</button>
         <button class="view-button" data-view="bySaveTime">按保存时间分组</button>
         <button class="view-button" data-view="byCustomGroup">按自定义分组</button>
-        <button class="view-button" data-view="byNote">按标签分组</button>
         <button class="view-button" data-view="byTabGroup">按标签组</button>
         <button class="view-button" data-view="byRulesUnvisited">未访问(聚合)</button>
         <button class="view-button" data-view="byRulesUnvisitedInGroup">未访问(组内)</button>
@@ -2977,7 +3004,6 @@ document.addEventListener("DOMContentLoaded", () => {
         <div class="tabs-container active" id="recent">${links.map((link, i) => generateTabEntry(link, i + 1, true)).join('')}</div>
         <div class="tabs-container" id="bySaveTime">${bySaveTimeHTML}</div>
         <div class="tabs-container" id="byCustomGroup">${customGroupsHTML}</div>
-        <div class="tabs-container" id="byNote"></div>
         <div class="tabs-container" id="byTabGroup">
           <div class="tab-group">
             <div class="group-header" onclick="window.toggleGroup(this)">
@@ -3767,8 +3793,6 @@ document.addEventListener("DOMContentLoaded", () => {
               regenerateUnvisitedView();
             } else if (btn.dataset.view === 'byRulesUnvisitedInGroup') {
               regenerateUnvisitedInGroupView();
-            } else if (btn.dataset.view === 'byNote') {
-              regenerateByTagsView();
             } else if (btn.dataset.view === 'byDownloaded') {
               regenerateByMarker('Downloaded');
             } else if (btn.dataset.view === 'byNotDownloaded') {
@@ -3832,6 +3856,16 @@ document.addEventListener("DOMContentLoaded", () => {
     autoCloseTabBtn.addEventListener("change", () => {
       chrome.storage.local.set({ autoCloseTab: autoCloseTabBtn.checked }, () => {
         console.log("✅ 保存后自动关闭标签设置已更新:", autoCloseTabBtn.checked);
+      });
+    });
+  }
+
+  if (toastDurationSelect) {
+    toastDurationSelect.addEventListener("change", () => {
+      const duration = Math.min(5, Math.max(1, Number(toastDurationSelect.value) || 3));
+      toastDurationSelect.value = String(duration);
+      chrome.storage.local.set({ toastDurationSeconds: duration }, () => {
+        console.log("✅ 弹窗关闭时间设置已更新:", duration);
       });
     });
   }

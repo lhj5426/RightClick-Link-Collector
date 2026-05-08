@@ -1,6 +1,6 @@
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.action === 'showNotification') {
-    showToast(message.title, message.url, message.groupName, message.date, message.hasSnapshot, message.snapshotDataUrl, message.autoClose, message.totalCount, message.groupColor, message.groupTextColor, message.clickPoint);
+    showToast(message.title, message.url, message.groupName, message.date, message.hasSnapshot, message.snapshotDataUrl, message.autoClose, message.totalCount, message.groupColor, message.groupTextColor, message.clickPoint, message.toastDurationSeconds);
   }
 });
 
@@ -45,7 +45,7 @@ function positionToastMarker(marker, clickPoint, imageEl, containerEl) {
   requestAnimationFrame(updatePosition);
 }
 
-function showToast(title, url, groupName, date, hasSnapshot, snapshotDataUrl, autoClose, totalCount, groupColor, explicitTextColor, clickPoint) {
+function showToast(title, url, groupName, date, hasSnapshot, snapshotDataUrl, autoClose, totalCount, groupColor, explicitTextColor, clickPoint, toastDurationSeconds) {
   // 样式每次都覆盖更新，避免扩展热重载后页面仍沿用旧样式
   let style = document.getElementById('link-collector-toast-style');
   if (!style) {
@@ -303,11 +303,11 @@ function showToast(title, url, groupName, date, hasSnapshot, snapshotDataUrl, au
   }
 
   // 触发动画
-  const dismissTime = snapshotDataUrl ? 4000 : 3000;
+  const dismissTime = Math.min(5, Math.max(1, Number(toastDurationSeconds) || 3)) * 1000;
   toast.style.setProperty('--toast-duration', (dismissTime / 1000) + 's');
   setTimeout(() => toast.classList.add('show'), 10);
 
-  // 有缩略图时显示更长时间（4秒），无缩略图3秒
+  // 使用用户自定义的弹窗显示时长
   setTimeout(() => {
     toast.classList.remove('show');
     setTimeout(() => {
