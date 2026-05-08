@@ -2959,10 +2959,15 @@ document.addEventListener("DOMContentLoaded", () => {
         .exp-preview-modal.show { display: flex; align-items: stretch; justify-content: center; }
         .exp-preview-scroll-layer { width: 100%; height: 100vh; overflow-y: auto; overscroll-behavior: contain; -webkit-overflow-scrolling: touch; padding: 24px 0 28px; box-sizing: border-box; }
         .exp-preview-shell { position: relative; width: min(96vw, 1700px); max-width: min(96vw, 1700px); max-height: none; margin: 0 auto; display: flex; flex-direction: column; gap: 14px; cursor: default; }
-        .exp-preview-media-section { min-height: calc(100vh - 80px); display: flex; align-items: flex-start; }
+        .exp-preview-media-section { min-height: calc(100vh - 80px); display: flex; align-items: flex-start; position: relative; }
         .exp-preview-image-frame { display: block; min-height: 0; max-height: none; border-radius: 10px; overflow: visible; background: rgba(15,23,42,0.72); line-height: 0; box-shadow: 0 18px 40px rgba(0,0,0,0.28); width: 100%; position: relative; }
         .exp-preview-image-frame img { display: block; width: 100%; max-width: 100%; height: auto; max-height: none; border-radius: 10px; }
         .exp-preview-image-frame .snapshot-marker { position: absolute; width: 14px; height: 14px; background: #ff4444; border-radius: 50%; transform: translate(-50%,-50%); pointer-events: none; box-shadow: 0 0 8px rgba(0,0,0,0.8); border: 2px solid white; z-index: 100; }
+        .exp-preview-nav-overlay { position: absolute; top: 0; bottom: 0; width: var(--exp-preview-nav-zone-width, 56px); opacity: 0; pointer-events: none; transition: opacity 0.18s ease; z-index: 2; }
+        .exp-preview-nav-overlay-left { left: 0; background: linear-gradient(90deg, rgba(15,23,42,0.42) 0%, rgba(15,23,42,0.18) 62%, rgba(15,23,42,0) 100%); }
+        .exp-preview-nav-overlay-right { right: 0; background: linear-gradient(270deg, rgba(15,23,42,0.42) 0%, rgba(15,23,42,0.18) 62%, rgba(15,23,42,0) 100%); }
+        .exp-preview-nav-overlay.is-active { opacity: 1; }
+        .exp-preview-nav-overlay.is-disabled { display: none; }
         .exp-preview-detail-section { margin-top: 28px; padding-top: 4px; background: #f5f7fa; border-radius: 12px; padding: 16px; }
       </style></head><body>
       <div class="static-header">
@@ -3276,6 +3281,68 @@ document.addEventListener("DOMContentLoaded", () => {
           return \`<div class="exp-preview-detail-section">\${tmp.innerHTML}</div>\`;
         }
 
+        function _bindExportPreviewNavOverlay(overlayHost, options = {}) {
+          if (!overlayHost) return;
+
+          const {
+            canNavigate = false,
+            isAtStart = false,
+            isAtEnd = false,
+            boundsSource = overlayHost
+          } = options;
+
+          const leftOverlay = overlayHost.querySelector('.exp-preview-nav-overlay-left');
+          const rightOverlay = overlayHost.querySelector('.exp-preview-nav-overlay-right');
+          if (!leftOverlay && !rightOverlay) return;
+
+          const clearState = () => {
+            leftOverlay?.classList.remove('is-active');
+            rightOverlay?.classList.remove('is-active');
+          };
+
+          const updateState = (clientX) => {
+            const hostRect = overlayHost.getBoundingClientRect();
+            const rect = boundsSource?.getBoundingClientRect?.();
+            if (!rect || !hostRect) {
+              clearState();
+              return;
+            }
+
+            const navZoneWidth = Math.min(96, Math.max(56, rect.width * 0.08));
+            overlayHost.style.setProperty('--exp-preview-nav-zone-width', navZoneWidth + 'px');
+
+            const overlayTop = Math.max(0, rect.top - hostRect.top);
+            const overlayHeight = Math.max(0, rect.height);
+            leftOverlay?.style.setProperty('top', overlayTop + 'px');
+            leftOverlay?.style.setProperty('height', overlayHeight + 'px');
+            leftOverlay?.style.setProperty('bottom', 'auto');
+            rightOverlay?.style.setProperty('top', overlayTop + 'px');
+            rightOverlay?.style.setProperty('height', overlayHeight + 'px');
+            rightOverlay?.style.setProperty('bottom', 'auto');
+
+            if (!canNavigate || clientX < rect.left || clientX > rect.right) {
+              clearState();
+              return;
+            }
+
+            const leftBound = rect.left + navZoneWidth;
+            const rightBound = rect.right - navZoneWidth;
+            leftOverlay?.classList.toggle('is-active', !isAtStart && clientX <= leftBound);
+            rightOverlay?.classList.toggle('is-active', !isAtEnd && clientX >= rightBound);
+          };
+
+          overlayHost.addEventListener('mousemove', (e) => updateState(e.clientX));
+          overlayHost.addEventListener('mouseleave', clearState);
+          if (boundsSource && !boundsSource.complete) {
+            boundsSource.addEventListener('load', () => {
+              updateState(-1);
+              clearState();
+            }, { once: true });
+          }
+          updateState(-1);
+          clearState();
+        }
+
         function _renderPreviewModal() {
           const modal = document.getElementById('previewModal');
           const { items, index } = _gallery;
@@ -3296,6 +3363,9 @@ document.addEventListener("DOMContentLoaded", () => {
           }
 
           const detailHtml = _buildDetailHtml(link, item.galleryIndex);
+          const isAtStart = index <= 0;
+          const isAtEnd = index >= items.length - 1;
+          const canNavigate = items.length > 1;
 
           const prevScrollLayer = modal.querySelector('.exp-preview-scroll-layer');
           const savedScrollTop = prevScrollLayer ? prevScrollLayer.scrollTop : 0;
@@ -3303,6 +3373,8 @@ document.addEventListener("DOMContentLoaded", () => {
           modal.innerHTML = \`<div class="exp-preview-scroll-layer">
             <div class="exp-preview-shell">
               <div class="exp-preview-media-section">
+                  <div class="exp-preview-nav-overlay exp-preview-nav-overlay-left\${isAtStart ? ' is-disabled' : ''}" aria-hidden="true"></div>
+                  <div class="exp-preview-nav-overlay exp-preview-nav-overlay-right\${isAtEnd ? ' is-disabled' : ''}" aria-hidden="true"></div>
                 <div class="exp-preview-image-frame" style="position:relative;">
                   <img src="\${dataUrl}" alt="快照预览">
                   \${markerHtml}
@@ -3320,18 +3392,26 @@ document.addEventListener("DOMContentLoaded", () => {
           if (newScrollLayer && savedScrollTop > 0) newScrollLayer.scrollTop = savedScrollTop;
 
           const imageFrame = modal.querySelector('.exp-preview-image-frame');
-          const edgeRatio = 0.32;
-          const isAtStart = index <= 0;
-          const isAtEnd = index >= items.length - 1;
-          const canNavigate = items.length > 1;
+          const mediaSection = modal.querySelector('.exp-preview-media-section');
+          _bindExportPreviewNavOverlay(mediaSection, {
+            canNavigate,
+            isAtStart,
+            isAtEnd,
+            boundsSource: imageFrame.querySelector('img')
+          });
 
           modal.onclick = (e) => {
             if (e.target.closest('a, button, input, textarea, select, label')) return;
             const clickX = typeof e.clientX === 'number' ? e.clientX : 0;
             const zone = e.target.closest('.exp-preview-image-frame');
-            const rect = zone ? imageFrame.getBoundingClientRect() : (modal.querySelector('.exp-preview-shell') || modal).getBoundingClientRect();
-            const leftBound = rect.left + rect.width * edgeRatio;
-            const rightBound = rect.left + rect.width * (1 - edgeRatio);
+            if (!zone || !imageFrame) {
+              _hidePreviewModal();
+              return;
+            }
+            const rect = imageFrame.getBoundingClientRect();
+            const navZoneWidth = Math.min(96, Math.max(56, rect.width * 0.08));
+            const leftBound = rect.left + navZoneWidth;
+            const rightBound = rect.right - navZoneWidth;
 
             if (canNavigate && clickX <= leftBound && !isAtStart) {
               _gallery.index--;
@@ -4421,6 +4501,73 @@ document.addEventListener("DOMContentLoaded", () => {
     }
     setPreviewDetailLock(false);
   }
+
+  function bindPreviewNavOverlay(overlayHost, options = {}) {
+    if (!overlayHost) return;
+
+    const {
+      canNavigate = false,
+      isAtStart = false,
+      isAtEnd = false,
+      leftSelector = '.preview-nav-overlay-left',
+      rightSelector = '.preview-nav-overlay-right',
+      widthMode = 'manager',
+      boundsSource = overlayHost
+    } = options;
+
+    const leftOverlay = overlayHost.querySelector(leftSelector);
+    const rightOverlay = overlayHost.querySelector(rightSelector);
+    if (!leftOverlay && !rightOverlay) return;
+
+    const clearState = () => {
+      leftOverlay?.classList.remove('is-active');
+      rightOverlay?.classList.remove('is-active');
+    };
+
+    const updateState = (clientX) => {
+      const hostRect = overlayHost.getBoundingClientRect();
+      const rect = boundsSource?.getBoundingClientRect?.();
+      if (!rect || !hostRect) {
+        clearState();
+        return;
+      }
+      const navZoneWidth = widthMode === 'export'
+        ? Math.min(96, Math.max(56, rect.width * 0.08))
+        : Math.min(120, Math.max(72, rect.width * 0.12));
+
+      overlayHost.style.setProperty('--preview-nav-zone-width', `${navZoneWidth}px`);
+      overlayHost.style.setProperty('--exp-preview-nav-zone-width', `${navZoneWidth}px`);
+      const overlayTop = Math.max(0, rect.top - hostRect.top);
+      const overlayHeight = Math.max(0, rect.height);
+      leftOverlay?.style.setProperty('top', `${overlayTop}px`);
+      leftOverlay?.style.setProperty('height', `${overlayHeight}px`);
+      leftOverlay?.style.setProperty('bottom', 'auto');
+      rightOverlay?.style.setProperty('top', `${overlayTop}px`);
+      rightOverlay?.style.setProperty('height', `${overlayHeight}px`);
+      rightOverlay?.style.setProperty('bottom', 'auto');
+
+      if (!canNavigate || clientX < rect.left || clientX > rect.right) {
+        clearState();
+        return;
+      }
+
+      const leftBoundary = rect.left + navZoneWidth;
+      const rightBoundary = rect.right - navZoneWidth;
+      leftOverlay?.classList.toggle('is-active', !isAtStart && clientX <= leftBoundary);
+      rightOverlay?.classList.toggle('is-active', !isAtEnd && clientX >= rightBoundary);
+    };
+
+    overlayHost.addEventListener('mousemove', (e) => updateState(e.clientX));
+    overlayHost.addEventListener('mouseleave', clearState);
+    if (boundsSource && !boundsSource.complete) {
+      boundsSource.addEventListener('load', () => {
+        updateState(-1);
+        clearState();
+      }, { once: true });
+    }
+    updateState(-1);
+    clearState();
+  }
   
   // 显示大图预览弹窗
   function showPreviewModalV2(options, legacyClickPoint) {
@@ -4467,6 +4614,8 @@ document.addEventListener("DOMContentLoaded", () => {
       <div class="preview-scroll-layer">
         <div class="preview-shell ${mode === 'detail' ? 'detail' : 'simple'}">
           <div class="preview-media-section">
+            <div class="preview-nav-overlay preview-nav-overlay-left${isAtStart ? ' is-disabled' : ''}" aria-hidden="true"></div>
+            <div class="preview-nav-overlay preview-nav-overlay-right${isAtEnd ? ' is-disabled' : ''}" aria-hidden="true"></div>
             <div class="preview-container preview-image-frame">
               <img src="${dataUrl}" alt="快照预览">
             </div>
@@ -4478,22 +4627,30 @@ document.addEventListener("DOMContentLoaded", () => {
 
     const scrollLayer = modal.querySelector('.preview-scroll-layer');
     const shell = modal.querySelector('.preview-shell');
+    const mediaSection = modal.querySelector('.preview-media-section');
     const container = modal.querySelector('.preview-container');
     const imageFrame = modal.querySelector('.preview-image-frame');
     const previewImage = modal.querySelector('.preview-container img');
+    bindPreviewNavOverlay(mediaSection, {
+      canNavigate,
+      isAtStart,
+      isAtEnd,
+      widthMode: 'manager',
+      boundsSource: previewImage
+    });
     modal.onclick = async (e) => {
       if (isPreviewInteractiveTarget(e.target)) return;
 
-      const clickX = typeof e.clientX === 'number' ? e.clientX : 0;
-      const edgeRatio = 0.32;
-      const imageZoneTarget = e.target instanceof Element ? e.target.closest('.preview-image-frame') : null;
-      const activeRect = imageZoneTarget
-        ? imageFrame?.getBoundingClientRect?.()
-        : shell?.getBoundingClientRect?.();
-      const baseLeft = activeRect?.left ?? 0;
-      const baseWidth = activeRect?.width ?? (window.innerWidth || document.documentElement.clientWidth || 1);
-      const leftBoundary = baseLeft + (baseWidth * edgeRatio);
-      const rightBoundary = baseLeft + (baseWidth * (1 - edgeRatio));
+        const clickX = typeof e.clientX === 'number' ? e.clientX : 0;
+        const imageZoneTarget = e.target instanceof Element ? e.target.closest('.preview-image-frame') : null;
+        const activeRect = imageZoneTarget
+          ? imageFrame?.getBoundingClientRect?.()
+          : shell?.getBoundingClientRect?.();
+        const baseLeft = activeRect?.left ?? 0;
+        const baseWidth = activeRect?.width ?? (window.innerWidth || document.documentElement.clientWidth || 1);
+        const navZoneWidth = Math.min(120, Math.max(72, baseWidth * 0.12));
+        const leftBoundary = baseLeft + navZoneWidth;
+        const rightBoundary = baseLeft + baseWidth - navZoneWidth;
 
       if (canNavigate && clickX <= leftBoundary && !isAtStart) {
         await navigatePreviewGallery(-1);
