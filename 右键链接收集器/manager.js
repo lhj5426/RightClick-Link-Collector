@@ -16,6 +16,7 @@ let selectedLinkIds = new Set();
 const STORAGE_KEY = 'tabSaverVisitedLinks';
 const GROUP_COLLAPSE_STATE_KEY = 'tabSaverGroupCollapseStates';
 const DEFAULT_GROUPS = [];
+const EXPORT_PREFIX_STORAGE_KEY = 'exportFilePrefix';
 
 if (currentView === "thumbGrid") {
   currentView = "all";
@@ -33,6 +34,7 @@ document.addEventListener("DOMContentLoaded", () => {
   const copyAllBtn = document.getElementById("copyAllBtn");
   const saveHtmlBtn = document.getElementById("saveHtmlBtn");
   const saveTxtBtn = document.getElementById("saveTxtBtn");
+  const setExportPrefixBtn = document.getElementById("setExportPrefixBtn");
   const clearAllBtn = document.getElementById("clearAllBtn");
   const themeBtn = document.getElementById("themeBtn");
   const viewTabs = document.querySelectorAll(".view-tab");
@@ -59,6 +61,7 @@ document.addEventListener("DOMContentLoaded", () => {
   const headerLeft = document.querySelector(".header-left");
   const toolbarActions = document.querySelector(".toolbar-actions");
   const saveHtmlDropdown = saveHtmlBtn ? saveHtmlBtn.closest(".dropdown") : null;
+  let exportFilePrefix = '';
 
   if (headerLeft && copyAllBtn && clearAllBtn && saveHtmlDropdown && saveTxtBtn && headerExportDataBtn && headerImportDataBtn) {
     let titleGroup = headerLeft.querySelector(".header-title-group");
@@ -112,6 +115,25 @@ document.addEventListener("DOMContentLoaded", () => {
     const div = document.createElement('div');
     div.textContent = s;
     return div.innerHTML;
+  }
+
+  function sanitizeExportPrefix(prefix) {
+    return String(prefix || '')
+      .trim()
+      .replace(/[<>:"/\\|?*\u0000-\u001F]/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+  }
+
+  function getExportFilenamePrefix() {
+    const prefix = sanitizeExportPrefix(exportFilePrefix);
+    return prefix ? `${prefix}_` : '';
+  }
+
+  function updateExportPrefixButtonText() {
+    if (!setExportPrefixBtn) return;
+    const prefix = sanitizeExportPrefix(exportFilePrefix);
+    setExportPrefixBtn.textContent = prefix ? `修改保存前缀（当前：${prefix}）` : '修改保存前缀';
   }
 
   function isThumbnailMode() {
@@ -407,7 +429,7 @@ document.addEventListener("DOMContentLoaded", () => {
   
   // 加载链接和分组
   function loadLinks() {
-    chrome.storage.local.get({ links: [], groups: DEFAULT_GROUPS, autoCloseTab: false, toastDurationSeconds: 3 }, (res) => {
+    chrome.storage.local.get({ links: [], groups: DEFAULT_GROUPS, autoCloseTab: false, toastDurationSeconds: 3, exportFilePrefix: '' }, (res) => {
       allLinks = Array.isArray(res.links) ? res.links : [];
       
       // 迁移旧版 note 到 tags
@@ -430,6 +452,8 @@ document.addEventListener("DOMContentLoaded", () => {
       }
       
       allGroups = Array.isArray(res.groups) ? res.groups : DEFAULT_GROUPS;
+      exportFilePrefix = sanitizeExportPrefix(res.exportFilePrefix || '');
+      updateExportPrefixButtonText();
       if (toastDurationSelect) {
         const duration = Math.min(5, Math.max(1, Number(res.toastDurationSeconds) || 3));
         toastDurationSelect.value = String(duration);
@@ -2346,6 +2370,21 @@ document.addEventListener("DOMContentLoaded", () => {
   });
   
   // 批量操作按钮
+  setExportPrefixBtn?.addEventListener('click', (e) => {
+    e.preventDefault();
+    if (htmlDropdown) htmlDropdown.classList.remove('show');
+    const currentValue = sanitizeExportPrefix(exportFilePrefix);
+    const input = prompt(
+      '设置保存前缀。\n示例：Chrome、Edge、工作浏览器\n留空并确定可清除前缀。',
+      currentValue
+    );
+    if (input === null) return;
+    exportFilePrefix = sanitizeExportPrefix(input);
+    chrome.storage.local.set({ [EXPORT_PREFIX_STORAGE_KEY]: exportFilePrefix }, () => {
+      updateExportPrefixButtonText();
+    });
+  });
+
   const batchMoveBtn = document.getElementById("batchMoveBtn");
   const batchDeleteBtn = document.getElementById("batchDeleteBtn");
   const batchCancelBtn = document.getElementById("batchCancelBtn");
@@ -2509,6 +2548,10 @@ document.addEventListener("DOMContentLoaded", () => {
   }
   
   function downloadBlob(content, filename, mime) {
+    const prefix = getExportFilenamePrefix();
+    if (prefix && /\.(html|json|txt)$/i.test(filename) && !filename.startsWith(prefix)) {
+      filename = prefix + filename;
+    }
     const blob = new Blob([content], { type: mime });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
