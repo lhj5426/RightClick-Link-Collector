@@ -3,12 +3,14 @@
  */
 
 let allLinks = [];
-let allGroups = [];
-let themeMode = "auto";
-let currentView = localStorage.getItem('currentView') || "all";
-let currentDisplayMode = localStorage.getItem('currentDisplayMode') || "card";
-let groupsCollapsed = localStorage.getItem('groupsCollapsed') === 'true';
-let sortOrder = "oldest"; // "oldest" 旧→新（默认），"newest" 新→旧
+  let allGroups = [];
+  let themeMode = "auto";
+  let currentView = localStorage.getItem('currentView') || "all";
+  let currentDisplayMode = localStorage.getItem('currentDisplayMode') || "card";
+  let groupsCollapsed = localStorage.getItem('groupsCollapsed') === 'true';
+  let globalAutoCloseGroupEnabled = false;
+  let sortOrder = "oldest"; // "oldest" 旧→新（默认），"newest" 新→旧
+const GLOBAL_AUTO_CLOSE_GROUP_ID = '__global__';
 let pageSortOrder = "off"; // "off" 不按页数排序, "asc" 少→多, "desc" 多→少
 let unvisitedMode = "aggregate"; // "aggregate" 聚合模式, "inGroup" 组内模式
 let currentSearchKeywords = []; // 当前搜索的多关键字
@@ -50,6 +52,15 @@ document.addEventListener("DOMContentLoaded", () => {
   const addGroupBtn = document.getElementById("addGroupBtn");
   const toastDurationSelect = document.getElementById("toastDurationSelect");
   const autoCloseTabBtn = document.getElementById("autoCloseTabBtn");
+  const autoCloseMenuBtn = document.getElementById("autoCloseMenuBtn");
+  const autoCloseMenuSummary = document.getElementById("autoCloseMenuSummary");
+  const autoCloseModal = document.getElementById("autoCloseModal");
+  const closeAutoCloseModal = document.getElementById("closeAutoCloseModal");
+  const autoCloseModeBadge = document.getElementById("autoCloseModeBadge");
+  const autoCloseGlobalSection = document.getElementById("autoCloseGlobalSection");
+  const autoCloseGroupSection = document.getElementById("autoCloseGroupSection");
+  const autoCloseGroupSearch = document.getElementById("autoCloseGroupSearch");
+  const autoCloseGroupList = document.getElementById("autoCloseGroupList");
   const groupJumpBtn = document.getElementById("groupJumpBtn");
   const groupJumpCount = document.getElementById("groupJumpCount");
   const groupJumpDropdown = document.getElementById("groupJumpDropdown");
@@ -123,6 +134,96 @@ document.addEventListener("DOMContentLoaded", () => {
       .replace(/[<>:"/\\|?*\u0000-\u001F]/g, ' ')
       .replace(/\s+/g, ' ')
       .trim();
+  }
+
+  let autoCloseMode = 'global';
+
+  function getAutoCloseMode() {
+    return autoCloseMode === 'group' ? 'group' : 'global';
+  }
+
+  function setAutoCloseMode(mode) {
+    autoCloseMode = mode === 'group' ? 'group' : 'global';
+    chrome.storage.local.set({ autoCloseTabMode: autoCloseMode });
+  }
+
+  function isGroupAutoCloseEnabled(group) {
+    return !!group?.autoCloseTab;
+  }
+
+  function getAutoCloseGroupItems() {
+    return [
+      {
+        id: GLOBAL_AUTO_CLOSE_GROUP_ID,
+        name: '全局（无分组）',
+        autoCloseTab: !!globalAutoCloseGroupEnabled
+      },
+      ...allGroups
+    ];
+  }
+
+  function updateAutoCloseSummary() {
+    if (!autoCloseMenuSummary) return;
+    const mode = getAutoCloseMode();
+    if (mode === 'group') {
+      const groupItems = getAutoCloseGroupItems();
+      const enabledCount = groupItems.filter(isGroupAutoCloseEnabled).length;
+      autoCloseMenuSummary.textContent = `分组: ${enabledCount}/${groupItems.length}`;
+    } else {
+      autoCloseMenuSummary.textContent = `全局: ${autoCloseTabBtn?.checked ? '关闭' : '开启'}`;
+    }
+  }
+
+  function renderAutoCloseGroupList() {
+    if (!autoCloseGroupList) return;
+    autoCloseGroupList.innerHTML = '';
+    const keyword = String(autoCloseGroupSearch?.value || '').trim().toLowerCase();
+    const visibleGroups = getAutoCloseGroupItems().filter(group => !keyword || String(group.name || '').toLowerCase().includes(keyword));
+    visibleGroups.forEach(group => {
+      const row = document.createElement('label');
+      row.className = 'auto-close-group-item';
+      row.innerHTML = `
+        <span>${escapeHtml(group.name)}</span>
+        <div class="toggle-switch">
+          <input type="checkbox" data-group-id="${group.id}" ${isGroupAutoCloseEnabled(group) ? 'checked' : ''} />
+          <span class="slider round"></span>
+        </div>
+      `;
+      const checkbox = row.querySelector('input[type="checkbox"]');
+      checkbox?.addEventListener('change', (e) => {
+        updateGroupAutoCloseTab(group.id, e.target.checked);
+      });
+      autoCloseGroupList.appendChild(row);
+    });
+    if (visibleGroups.length === 0) {
+      const empty = document.createElement('div');
+      empty.className = 'auto-close-group-item';
+      empty.innerHTML = `<span>没有匹配的分组</span>`;
+      autoCloseGroupList.appendChild(empty);
+    }
+  }
+
+  function syncAutoCloseUI() {
+    const mode = getAutoCloseMode();
+    const isGroupMode = mode === 'group';
+    const globalChecked = !!(autoCloseTabBtn && autoCloseTabBtn.checked);
+    autoCloseGlobalSection && (autoCloseGlobalSection.style.display = isGroupMode ? 'none' : '');
+    autoCloseGroupSection && (autoCloseGroupSection.style.display = isGroupMode ? '' : 'none');
+    document.querySelectorAll('input[name="autoCloseMode"]').forEach(radio => {
+      radio.checked = radio.value === mode;
+    });
+    if (autoCloseModeBadge) {
+      autoCloseModeBadge.textContent = isGroupMode ? '按分组' : '全局';
+    }
+    if (autoCloseMenuSummary) {
+      const groupItems = getAutoCloseGroupItems();
+      autoCloseMenuSummary.textContent = isGroupMode
+        ? `分组: ${groupItems.filter(isGroupAutoCloseEnabled).length}/${groupItems.length}`
+        : `全局: ${globalChecked ? '关闭' : '开启'}`;
+    }
+    if (isGroupMode) {
+      renderAutoCloseGroupList();
+    }
   }
 
   function getExportFilenamePrefix() {
@@ -429,7 +530,7 @@ document.addEventListener("DOMContentLoaded", () => {
   
   // 加载链接和分组
   function loadLinks() {
-    chrome.storage.local.get({ links: [], groups: DEFAULT_GROUPS, autoCloseTab: false, toastDurationSeconds: 3, exportFilePrefix: '' }, (res) => {
+    chrome.storage.local.get({ links: [], groups: DEFAULT_GROUPS, autoCloseTab: false, globalAutoCloseTab: false, autoCloseTabMode: 'global', toastDurationSeconds: 3, exportFilePrefix: '' }, (res) => {
       allLinks = Array.isArray(res.links) ? res.links : [];
       
       // 迁移旧版 note 到 tags
@@ -452,6 +553,19 @@ document.addEventListener("DOMContentLoaded", () => {
       }
       
       allGroups = Array.isArray(res.groups) ? res.groups : DEFAULT_GROUPS;
+      let groupsNeedSave = false;
+      allGroups = allGroups.map(group => {
+        if (!group || typeof group !== "object") return group;
+        if (typeof group.autoCloseTab === "boolean") return group;
+        groupsNeedSave = true;
+        return {
+          ...group,
+          autoCloseTab: !!res.autoCloseTab
+        };
+      });
+      if (groupsNeedSave) {
+        chrome.storage.local.set({ groups: allGroups });
+      }
       exportFilePrefix = sanitizeExportPrefix(res.exportFilePrefix || '');
       updateExportPrefixButtonText();
       if (toastDurationSelect) {
@@ -461,6 +575,11 @@ document.addEventListener("DOMContentLoaded", () => {
       if (autoCloseTabBtn) {
         autoCloseTabBtn.checked = res.autoCloseTab;
       }
+      globalAutoCloseGroupEnabled = typeof res.globalAutoCloseTab === 'boolean'
+        ? res.globalAutoCloseTab
+        : !!res.autoCloseTab;
+      autoCloseMode = res.autoCloseTabMode === 'group' ? 'group' : 'global';
+      syncAutoCloseUI();
       renderLinks();
       applyCollapsedState();
       updateCount();
@@ -2351,7 +2470,26 @@ document.addEventListener("DOMContentLoaded", () => {
   saveHtmlBtn?.addEventListener("click", (e) => {
     e.stopPropagation();
     if (groupJumpDropdown) groupJumpDropdown.classList.remove("show");
+    if (autoCloseModal) autoCloseModal.classList.remove("show");
     if (htmlDropdown) htmlDropdown.classList.toggle("show");
+  });
+
+  autoCloseMenuBtn?.addEventListener("click", (e) => {
+    e.stopPropagation();
+    if (groupJumpDropdown) groupJumpDropdown.classList.remove("show");
+    if (htmlDropdown) htmlDropdown.classList.remove("show");
+    syncAutoCloseUI();
+    autoCloseModal?.classList.add("show");
+    if (getAutoCloseMode() === 'group') {
+      setTimeout(() => autoCloseGroupSearch?.focus(), 50);
+    }
+  });
+
+  document.querySelectorAll('input[name="autoCloseMode"]').forEach(radio => {
+    radio.addEventListener("change", () => {
+      setAutoCloseMode(radio.value);
+      syncAutoCloseUI();
+    });
   });
 
   // 点击页面其他地方关闭下拉菜单
@@ -3979,6 +4117,7 @@ document.addEventListener("DOMContentLoaded", () => {
     autoCloseTabBtn.addEventListener("change", () => {
       chrome.storage.local.set({ autoCloseTab: autoCloseTabBtn.checked }, () => {
         console.log("✅ 保存后自动关闭标签设置已更新:", autoCloseTabBtn.checked);
+        updateAutoCloseSummary();
       });
     });
   }
@@ -4014,6 +4153,10 @@ document.addEventListener("DOMContentLoaded", () => {
     groupModal.classList.add("show");
     renderGroupList();
   });
+
+  closeAutoCloseModal?.addEventListener("click", () => {
+    autoCloseModal?.classList.remove("show");
+  });
   
   // 关闭分组管理弹窗
   closeGroupModal.addEventListener("click", () => {
@@ -4025,6 +4168,16 @@ document.addEventListener("DOMContentLoaded", () => {
     if (e.target === groupModal) {
       groupModal.classList.remove("show");
     }
+  });
+
+  autoCloseModal?.addEventListener("click", (e) => {
+    if (e.target === autoCloseModal) {
+      autoCloseModal.classList.remove("show");
+    }
+  });
+
+  autoCloseGroupSearch?.addEventListener("input", () => {
+    renderAutoCloseGroupList();
   });
   
   // 渲染分组列表
@@ -4151,7 +4304,8 @@ document.addEventListener("DOMContentLoaded", () => {
       id: 'group_' + Date.now(),
       name: name,
       color: color,
-      textColor: textColor
+      textColor: textColor,
+      autoCloseTab: false
     };
     
     allGroups.push(newGroup);
@@ -4160,9 +4314,11 @@ document.addEventListener("DOMContentLoaded", () => {
       newGroupColor.value = "#2196F3";
       if (newGroupTextColor) newGroupTextColor.value = "#FFFFFF";
       renderGroupList();
+      renderAutoCloseGroupList();
       updateContextMenus();
       renderLinks();
       updateGroupCount();
+      updateAutoCloseSummary();
     });
   });
   
@@ -4201,6 +4357,24 @@ document.addEventListener("DOMContentLoaded", () => {
         renderLinks();
       });
     }
+  }
+
+  function updateGroupAutoCloseTab(groupId, enabled) {
+    if (groupId === GLOBAL_AUTO_CLOSE_GROUP_ID) {
+      globalAutoCloseGroupEnabled = !!enabled;
+      chrome.storage.local.set({ globalAutoCloseTab: globalAutoCloseGroupEnabled }, () => {
+        renderAutoCloseGroupList();
+        updateAutoCloseSummary();
+      });
+      return;
+    }
+    const group = allGroups.find(g => g.id === groupId);
+    if (!group) return;
+    group.autoCloseTab = !!enabled;
+    chrome.storage.local.set({ groups: allGroups }, () => {
+      renderAutoCloseGroupList();
+      updateAutoCloseSummary();
+    });
   }
   
   // 删除分组

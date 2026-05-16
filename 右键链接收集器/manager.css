@@ -138,6 +138,128 @@ body {
   color: var(--text-muted);
 }
 
+.setting-menu-btn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--text);
+  padding: 6px 12px;
+  border-radius: 20px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.setting-menu-text,
+.setting-menu-summary {
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.setting-menu-summary {
+  color: var(--text-muted);
+}
+
+.auto-close-dropdown {
+  position: relative;
+}
+
+.dropdown-panel-title {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-muted);
+  margin-bottom: 8px;
+}
+
+.auto-close-option,
+.auto-close-toggle-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 13px;
+  padding: 8px 2px;
+}
+
+.auto-close-option {
+  justify-content: flex-start;
+}
+
+.auto-close-option input {
+  margin: 0;
+}
+
+.dropdown-divider {
+  height: 1px;
+  background: var(--border);
+  margin: 8px 0;
+}
+
+.auto-close-group-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 520px;
+  overflow: auto;
+}
+
+.auto-close-group-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--panel);
+}
+
+.auto-close-group-item span {
+  font-size: 13px;
+}
+
+.auto-close-group-list-header {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-bottom: 8px;
+}
+
+.auto-close-modal-content {
+  max-width: 720px;
+}
+
+.auto-close-modal-controls {
+  display: flex;
+  gap: 20px;
+  flex-wrap: wrap;
+  margin-bottom: 16px;
+}
+
+.auto-close-global-card {
+  border: 2px solid var(--border);
+  border-radius: 12px;
+  padding: 14px 16px;
+  background: var(--bg);
+}
+
+.auto-close-group-search {
+  width: 100%;
+  border: 2px solid var(--border);
+  border-radius: 10px;
+  padding: 12px 14px;
+  background: var(--panel);
+  color: var(--text);
+  font-size: 14px;
+  margin-bottom: 12px;
+}
+
+.auto-close-group-search:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(11, 116, 255, 0.12);
+}
+
 .setting-select {
   display: flex;
   align-items: center;

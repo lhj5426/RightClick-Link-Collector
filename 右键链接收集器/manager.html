@@ -30,13 +30,13 @@
             <option value="5">5秒</option>
           </select>
         </label>
-        <label class="setting-toggle" title="保存链接后自动关闭当前网页标签页">
-          <span class="setting-toggle-text">保存后关闭标签</span>
-          <div class="toggle-switch">
-            <input type="checkbox" id="autoCloseTabBtn" />
-            <span class="slider round"></span>
-          </div>
-        </label>
+        <div class="auto-close-dropdown" title="保存链接后自动关闭当前网页标签页">
+          <button id="autoCloseMenuBtn" class="setting-menu-btn" type="button">
+            <span class="setting-menu-text">保存后关闭标签</span>
+            <span id="autoCloseMenuSummary" class="setting-menu-summary">全局: 关闭</span>
+            <span class="caret">▼</span>
+          </button>
+        </div>
         <button id="themeBtn" class="theme-btn" title="切换主题">🌙</button>
       </div>
     </header>
@@ -133,6 +133,41 @@
             </label>
           </div>
           <button id="addGroupBtn" class="btn btn-primary" style="padding: 8px 20px; white-space: nowrap; height: 40px;">➕ 添加分组</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="autoCloseModal" class="modal">
+    <div class="modal-content auto-close-modal-content">
+      <div class="modal-header">
+        <h2>🧩 保存后关闭标签 <span id="autoCloseModeBadge" class="group-count-badge">全局</span></h2>
+        <button class="modal-close" id="closeAutoCloseModal">✕</button>
+      </div>
+      <div class="modal-body">
+        <div class="auto-close-modal-controls">
+          <label class="auto-close-option">
+            <input type="radio" name="autoCloseMode" value="global" checked />
+            <span>全局统一</span>
+          </label>
+          <label class="auto-close-option">
+            <input type="radio" name="autoCloseMode" value="group" />
+            <span>按分组独立</span>
+          </label>
+        </div>
+        <div id="autoCloseGlobalSection" class="auto-close-section">
+          <label class="auto-close-toggle-row auto-close-global-card">
+            <span>全局开关</span>
+            <div class="toggle-switch">
+              <input type="checkbox" id="autoCloseTabBtn" />
+              <span class="slider round"></span>
+            </div>
+          </label>
+        </div>
+        <div id="autoCloseGroupSection" class="auto-close-section" style="display: none;">
+          <div class="auto-close-group-list-header">选择保存后要关闭的分组</div>
+          <input type="text" id="autoCloseGroupSearch" class="auto-close-group-search" placeholder="搜索分组名称..." />
+          <div id="autoCloseGroupList" class="auto-close-group-list"></div>
         </div>
       </div>
     </div>
