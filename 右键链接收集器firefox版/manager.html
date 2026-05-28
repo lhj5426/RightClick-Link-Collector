@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>右键链接收集器 - 管理页面</title>
+  <link rel="icon" type="image/png" href="icon.png" />
+  <link rel="stylesheet" href="manager.css" />
+</head>
+<body>
+  <div class="container">
+    <header class="header">
+      <div class="header-left">
+        <h1>🖱️ 右键链接收集器</h1>
+        <div class="stats">
+          <span id="totalCount" class="stat-badge">0</span>
+          <span class="stat-label">个链接</span>
+        </div>
+        <button id="copyAllBtn" class="btn btn-secondary">📋 复制全部</button>
+        <button id="clearAllBtn" class="btn btn-danger">🗑 清空全部</button>
+      </div>
+      <div class="header-right">
+        <label class="setting-select" title="设置保存成功提示弹窗和进度条的关闭时间">
+          <span class="setting-select-text">弹窗关闭时间</span>
+          <select id="toastDurationSelect" class="setting-select-input">
+            <option value="1">1秒</option>
+            <option value="2">2秒</option>
+            <option value="3" selected>3秒</option>
+            <option value="4">4秒</option>
+            <option value="5">5秒</option>
+          </select>
+        </label>
+        <div class="auto-close-dropdown" title="保存链接后自动关闭当前网页标签页">
+          <button id="autoCloseMenuBtn" class="setting-menu-btn" type="button">
+            <span class="setting-menu-text">保存后关闭标签</span>
+            <span id="autoCloseMenuSummary" class="setting-menu-summary">全局: 关闭</span>
+            <span class="caret">▼</span>
+          </button>
+        </div>
+        <button id="themeBtn" class="theme-btn" title="切换主题">🌙</button>
+      </div>
+    </header>
+
+    <div class="view-tabs">
+      <button class="view-tab active" data-view="all">全部</button>
+      <button class="view-tab" data-view="thumbGrid">缩略图模式</button>
+      <button class="view-tab" data-view="byGroup">按分组</button>
+      <button class="view-tab" data-view="byDomain">按域名分组</button>
+      <button class="view-tab" data-view="byNote">按标签分组</button>
+      <button class="view-tab" data-view="unvisited">未访问</button>
+      <button id="toggleGroupsBtn" class="view-tab view-tab-action">📂 折叠分组</button>
+      <button id="byDateBtn" class="view-tab view-tab-date">📅 按日期分组</button>
+      <button id="manageGroupsBtn" class="view-tab view-tab-special">🗂 管理分组 <span id="groupCountDisplay" class="group-count-display">当前有 0 个分组</span></button>
+    </div>
+
+    <div class="toolbar">
+      <div class="search-box" style="position: relative; display: flex; align-items: center; flex: 1;">
+        <input type="text" id="searchInput" placeholder="搜索链接..." style="padding-right: 110px; width: 100%;" />
+        <div style="position: absolute; right: 15px; display: flex; align-items: center; gap: 10px;">
+          <span id="clearSearchBtn" title="清空搜索" style="cursor: pointer; color: var(--text-muted); font-size: 18px; user-select: none; display: none; margin-top: -2px;">✕</span>
+          <span id="searchResultCount" style="font-size: 13px; font-weight: bold; color: var(--accent); display: none; white-space: nowrap;"></span>
+        </div>
+      </div>
+      <div class="toolbar-actions">
+        <button id="sortBtn" class="btn btn-secondary">↕ 按时间排序</button>
+        <button id="filterDuplicateBtn" class="btn btn-secondary">🔍 过滤重复</button>
+        <div class="dropdown">
+          <button id="saveHtmlBtn" class="btn btn-primary">💾 保存HTML <span class="caret">▼</span></button>
+          <div class="dropdown-content">
+            <a href="#" id="exportAllHtmlSnap">全部链接（带快照）</a>
+            <a href="#" id="exportAllHtmlNoSnap">全部链接（无快照）</a>
+            <div class="dropdown-divider"></div>
+            <a href="#" id="exportSelectedHtmlSnap">选中链接（带快照）</a>
+            <a href="#" id="exportSelectedHtmlNoSnap">选中链接（无快照）</a>
+            <div class="dropdown-divider"></div>
+            <a href="#" id="setExportPrefixBtn">修改保存前缀</a>
+          </div>
+        </div>
+        <button id="saveTxtBtn" class="btn btn-secondary">📝 保存TXT</button>
+        <button id="exportDataBtn" class="btn btn-primary">📦 导出数据</button>
+        <button id="importDataBtn" class="btn btn-secondary">📥 导入数据</button>
+        <input type="file" id="importFileInput" accept=".json" style="display: none;">
+      </div>
+    </div>
+
+    <div id="searchNavToolbar" class="search-nav-toolbar" style="display: none;">
+      <!-- keywords tags injected here -->
+    </div>
+
+    <div id="groupJumpFloating" class="group-jump-floating">
+      <div class="dropdown group-jump-dropdown">
+        <button id="groupJumpBtn" class="btn btn-primary view-tab-jump-btn">跳转分组 <span class="jump-caret-up">▲</span></button>
+        <div id="groupJumpDropdown" class="dropdown-content"></div>
+      </div>
+    </div>
+
+    <div id="batchToolbar" class="batch-toolbar" style="display: none;">
+      <input type="checkbox" id="batchSelectAllCheckbox" class="batch-select-all-checkbox" title="全选 / 取消全选">
+      <span id="batchCount" style="margin-right: 20px; font-weight: 500;">已选择 0 项</span>
+      <button id="batchMoveBtn" class="btn btn-success">🗂 批量移动</button>
+      <button id="batchDeleteBtn" class="btn btn-danger">🗑 批量删除</button>
+      <button id="batchCancelBtn" class="btn btn-secondary">取消选择</button>
+    </div>
+
+    <div class="links-section">
+      <div id="linksList" class="links-list">
+        <!-- 链接条目将动态插入这里 -->
+      </div>
+      <div id="emptyState" class="empty-state">
+        <div class="empty-icon">📭</div>
+        <p>还没有保存任何链接</p>
+        <p class="empty-hint">在网页中右键点击链接，选择“保存链接到收集器”即可。</p>
+      </div>
+    </div>
+  </div>
+
+  <div id="groupModal" class="modal">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h2>🗂 管理分组 <span id="groupCountBadge" class="group-count-badge">0</span></h2>
+        <button class="modal-close" id="closeGroupModal">✕</button>
+      </div>
+      <div class="modal-body">
+        <div class="group-list" id="groupList"></div>
+        <div class="add-group-section" style="flex-wrap: wrap;">
+          <input type="text" id="newGroupName" placeholder="输入新分组名称..." maxlength="20" style="flex: 1; min-width: 150px;" />
+          <div style="display:flex; gap:12px; align-items:center; flex-shrink: 0;">
+            <label style="font-size:13px; font-weight:bold; color:var(--text-muted); display:flex; align-items:center; gap:6px; cursor:pointer;" title="选择背景色">
+              背景<input type="color" id="newGroupColor" value="#2196F3" style="width:40px;height:40px;padding:2px;cursor:pointer;border:2px solid var(--border);border-radius:6px;">
+            </label>
+            <label style="font-size:13px; font-weight:bold; color:var(--text-muted); display:flex; align-items:center; gap:6px; cursor:pointer;" title="选择文字色">
+              文字<input type="color" id="newGroupTextColor" value="#FFFFFF" style="width:40px;height:40px;padding:2px;cursor:pointer;border:2px solid var(--border);border-radius:6px;">
+            </label>
+          </div>
+          <button id="addGroupBtn" class="btn btn-primary" style="padding: 8px 20px; white-space: nowrap; height: 40px;">➕ 添加分组</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="autoCloseModal" class="modal">
+    <div class="modal-content auto-close-modal-content">
+      <div class="modal-header">
+        <h2>🧩 保存后关闭标签 <span id="autoCloseModeBadge" class="group-count-badge">全局</span></h2>
+        <button class="modal-close" id="closeAutoCloseModal">✕</button>
+      </div>
+      <div class="modal-body">
+        <div class="auto-close-modal-controls">
+          <label class="auto-close-option">
+            <input type="radio" name="autoCloseMode" value="global" checked />
+            <span>全局统一</span>
+          </label>
+          <label class="auto-close-option">
+            <input type="radio" name="autoCloseMode" value="group" />
+            <span>按分组独立</span>
+          </label>
+        </div>
+        <div id="autoCloseGlobalSection" class="auto-close-section">
+          <label class="auto-close-toggle-row auto-close-global-card">
+            <span>全局开关</span>
+            <div class="toggle-switch">
+              <input type="checkbox" id="autoCloseTabBtn" />
+              <span class="slider round"></span>
+            </div>
+          </label>
+        </div>
+        <div id="autoCloseGroupSection" class="auto-close-section" style="display: none;">
+          <div class="auto-close-group-list-header">选择保存后要关闭的分组</div>
+          <input type="text" id="autoCloseGroupSearch" class="auto-close-group-search" placeholder="搜索分组名称..." />
+          <div id="autoCloseGroupList" class="auto-close-group-list"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="db.js"></script>
+  <script src="manager.js"></script>
+</body>
+</html>
