@@ -1,5 +1,9 @@
 ﻿// background.js - create context menu for link + page; save items with metadata
-importScripts('db.js');
+const extensionApi = globalThis.browser || globalThis.chrome;
+
+if (typeof importScripts === 'function') {
+  importScripts('db.js');
+}
 
 let lastRightClickCache = null;
 
@@ -464,7 +468,7 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
     let snapshotDataUrl = null;
     if (tab && tab.id) {
       try {
-        const dataUrl = await chrome.tabs.captureVisibleTab(tab.windowId, { format: 'jpeg', quality: 80 });
+        const dataUrl = await captureVisibleTabCompat(tab.windowId, { format: 'jpeg', quality: 80 });
         if (dataUrl) {
           await DB.saveSnapshot(itemId, dataUrl);
           item.hasSnapshot = true;
@@ -479,7 +483,7 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
     // === 步骤 2：独立执行脚本获取页面信息 ===
     if (tab && tab.id) {
       try {
-        const scriptResults = await chrome.scripting.executeScript({
+        const scriptResults = await executeScriptCompat({
           target: { tabId: tab.id },
           func: () => {
             const normalizeGalleryTagText = (value) => String(value || '').replace(/\s+/g, ' ').trim();
@@ -712,11 +716,23 @@ function isInjectablePageUrl(url) {
   return /^(https?|file):/i.test(String(url || '').trim());
 }
 
+function captureVisibleTabCompat(windowId, options) {
+  return extensionApi.tabs.captureVisibleTab(windowId, options);
+}
+
+function executeScriptCompat(options) {
+  return extensionApi.scripting.executeScript(options);
+}
+
+function sendMessageCompat(tabId, payload) {
+  return extensionApi.tabs.sendMessage(tabId, payload);
+}
+
 async function sendNotificationToTab(tabId, tabUrl, payload) {
   if (!tabId) return false;
 
   try {
-    await chrome.tabs.sendMessage(tabId, payload);
+    await sendMessageCompat(tabId, payload);
     return true;
   } catch (error) {
     const message = String(error?.message || error || '');
@@ -727,11 +743,11 @@ async function sendNotificationToTab(tabId, tabUrl, payload) {
     }
 
     try {
-      await chrome.scripting.executeScript({
+      await executeScriptCompat({
         target: { tabId },
         files: ['content.js']
       });
-      await chrome.tabs.sendMessage(tabId, payload);
+      await sendMessageCompat(tabId, payload);
       console.log("页面通知重试发送成功");
       return true;
     } catch (retryError) {

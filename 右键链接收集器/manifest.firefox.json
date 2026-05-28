@@ -1,11 +1,21 @@
 {
   "manifest_version": 3,
   "name": "右键链接收集器",
-  "version": "2026.5.28",
+  "version": "2026.5.16",
   "description": "在不打开网页的情况下右键保存链接和鼠标位置快照图片，可导出HTML和TXT",
-  "permissions": ["storage", "contextMenus", "downloads", "activeTab", "scripting", "unlimitedStorage"],
+  "permissions": [
+    "storage",
+    "contextMenus",
+    "downloads",
+    "activeTab",
+    "scripting",
+    "unlimitedStorage"
+  ],
   "background": {
-    "service_worker": "background.js"
+    "scripts": [
+      "db.js",
+      "background.js"
+    ]
   },
   "options_ui": {
     "page": "manager.html",
@@ -25,11 +35,22 @@
   },
   "content_scripts": [
     {
-      "matches": ["<all_urls>"],
-      "js": ["content.js"],
+      "matches": [
+        "<all_urls>"
+      ],
+      "js": [
+        "content.js"
+      ],
       "all_frames": true,
       "run_at": "document_start"
     }
   ],
-  "host_permissions": ["<all_urls>"]
+  "host_permissions": [
+    "<all_urls>"
+  ],
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "right-click-link-collector@example.com"
+    }
+  }
 }

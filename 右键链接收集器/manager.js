@@ -1964,6 +1964,62 @@ document.addEventListener("DOMContentLoaded", () => {
     textInput.maxLength = 2048;
     
     // 收集所有已存在的标签以供快速选择
+    function batchTagSearchMatchesLocal(tagText) {
+      const keyword = batchSelectedTagKeyword.trim().toLowerCase();
+      if (!keyword) return true;
+      return String(tagText || '').trim().toLowerCase().includes(keyword);
+    }
+
+    function batchUpdateSearchMetaLocal() {
+      if (!batchSelectedTagSearchMeta) return;
+
+      const keyword = batchSelectedTagKeyword.trim();
+      if (!keyword) {
+        batchSelectedTagSearchMeta.textContent = `当前显示全部 ${selectedLinks.length} 个选中条目。`;
+        return;
+      }
+
+      let matchedLinks = 0;
+      let matchedTags = 0;
+      linkTagStates.forEach((linkState) => {
+        const count = linkState.tags.filter(tag => batchTagSearchMatchesLocal(tag.text)).length;
+        if (count > 0) {
+          matchedLinks += 1;
+          matchedTags += count;
+        }
+      });
+
+      batchSelectedTagSearchMeta.textContent = `搜索“${keyword}”后，显示 ${matchedLinks} 个条目，匹配到 ${matchedTags} 个已有标签。`;
+    }
+
+    function batchTagSearchMatchesDialog(tagText) {
+      const keyword = batchSelectedTagKeyword.trim().toLowerCase();
+      if (!keyword) return true;
+      return String(tagText || '').trim().toLowerCase().includes(keyword);
+    }
+
+    function batchUpdateSearchMetaDialog() {
+      if (!batchSelectedTagSearchMeta) return;
+
+      const keyword = batchSelectedTagKeyword.trim();
+      if (!keyword) {
+        batchSelectedTagSearchMeta.textContent = `当前显示全部 ${selectedLinks.length} 个选中条目。`;
+        return;
+      }
+
+      let matchedLinks = 0;
+      let matchedTags = 0;
+      linkTagStates.forEach((linkState) => {
+        const count = linkState.tags.filter(tag => batchTagSearchMatchesDialog(tag.text)).length;
+        if (count > 0) {
+          matchedLinks += 1;
+          matchedTags += count;
+        }
+      });
+
+      batchSelectedTagSearchMeta.textContent = `搜索“${keyword}”后，显示 ${matchedLinks} 个条目，匹配到 ${matchedTags} 个已有标签。`;
+    }
+
     const allExistingTags = [];
     const tagMap = new Map();
     allLinks.forEach(l => {
@@ -1996,7 +2052,7 @@ document.addEventListener("DOMContentLoaded", () => {
       }
 
       span.innerHTML = `
-        <span class="edit-tag-main">${escapeHtml(tag.text)}</span>
+        <span class="edit-tag-main">${escapeHtml(getBatchTagDisplayText(tag))}</span>
         ${editable ? `<span class="edit-tag-delete" data-index="${index}">✕</span>` : ''}
       `;
 
@@ -2196,6 +2252,533 @@ document.addEventListener("DOMContentLoaded", () => {
     });
     
     // 点击背景关闭
+    dialog.addEventListener('click', (e) => {
+      if (e.target === dialog) dialog.remove();
+    });
+  }
+
+  function getSelectedLinks() {
+    const selectedIds = getSelectedLinkIds();
+    return allLinks.filter(link => selectedIds.includes(link.id));
+  }
+
+  function showBatchTagDialog() {
+    const selectedLinks = getSelectedLinks();
+    if (selectedLinks.length === 0) {
+      alert('请先选择要打标签的链接');
+      return;
+    }
+
+    const dialog = document.createElement('div');
+    dialog.className = 'modal show';
+    dialog.style.zIndex = '10000';
+    dialog.innerHTML = `
+      <div class="modal-content" style="width: min(860px, 92vw); max-width: min(860px, 92vw); max-height: 88vh; z-index: 10001;">
+        <div class="modal-header">
+          <h2>批量编辑标签</h2>
+          <button class="modal-close" id="batchTagDialogClose">×</button>
+        </div>
+        <div class="modal-body" style="max-height: calc(88vh - 90px); overflow-y: auto;">
+          <p style="margin-bottom: 15px; color: var(--text-muted); font-size: 14px;">
+            已选中 ${selectedLinks.length} 个条目，正在批量编辑标签。
+          </p>
+          <div style="display:flex; gap:10px; align-items:center; margin-bottom: 12px; flex-wrap: wrap;">
+            <input type="text" id="batchSelectedTagSearchInput" placeholder="搜索已选条目的标签..." style="flex: 1; min-width: 220px; padding: 10px 12px; border: 2px solid var(--border); border-radius: 6px; font-size: 14px; box-sizing: border-box;">
+            <button class="btn btn-secondary" id="batchSelectedTagSearchClear" type="button">清空搜索</button>
+            <button class="btn btn-danger" id="batchDeleteMatchedTagsBtn" type="button">删除过滤标签</button>
+          </div>
+          <div id="batchSelectedTagSearchMeta" style="margin-bottom: 12px; font-size: 12px; color: var(--text-muted);"></div>
+          <div id="batchTagsContainer" style="min-height: 88px; padding: 10px; border: 2px solid var(--border); border-radius: 6px; background: var(--bg); display: flex; flex-direction: column; gap: 8px;"></div>
+          <div class="tag-input-group" style="align-items: center; gap: 12px; flex-wrap: wrap;">
+            <input type="text" id="batchTagTextInput" placeholder="输入新标签..." maxlength="30" style="flex: 1; min-width: 150px;">
+            <label style="font-size: 13px; color: var(--text-muted); display: flex; align-items: center; gap: 6px;">
+              背景
+              <input type="color" id="batchTagColorInput" value="#795548" style="width: 42px; height: 42px; padding: 2px; border: 2px solid var(--border); border-radius: 6px;">
+            </label>
+            <label style="font-size: 13px; color: var(--text-muted); display: flex; align-items: center; gap: 6px;">
+              文字
+              <input type="color" id="batchTagTextColorInput" value="#ffffff" style="width: 42px; height: 42px; padding: 2px; border: 2px solid var(--border); border-radius: 6px;">
+            </label>
+            <button class="btn btn-primary" id="batchAddTagBtn" style="padding: 8px 20px; white-space: nowrap; height: 40px;">添加</button>
+          </div>
+          <div style="margin-top: 15px; border-top: 1px solid var(--border); padding-top: 10px;">
+            <div style="font-size: 13px; color: var(--text-muted); margin-bottom: 8px;">标签列表 (点击快速添加)：</div>
+            <div style="position: relative; margin-bottom: 10px;">
+              <input type="text" id="batchHistoricalTagSearchInput" placeholder="搜索标签：空格分隔，匹配任意一个" style="width: 100%; padding: 10px 42px 10px 12px; border: 2px solid var(--border); border-radius: 6px; font-size: 14px; box-sizing: border-box;" />
+              <button type="button" id="batchHistoricalTagSearchClear" title="清空搜索" style="display: none; position: absolute; right: 10px; top: 50%; transform: translateY(-50%); width: 24px; height: 24px; border: none; background: transparent; color: #5f6368; font-size: 22px; line-height: 24px; cursor: pointer; padding: 0;">x</button>
+            </div>
+            <div id="batchHistoricalTagsContainer" style="display: flex; flex-direction: column; gap: 8px; max-height: 180px; overflow-y: auto;"></div>
+          </div>
+          <div style="display: flex; gap: 10px; justify-content: flex-end; align-items: center; margin-top: 25px; flex-wrap: wrap;">
+            <div style="display: flex; gap: 10px; justify-content: flex-end; flex-wrap: wrap;">
+              <button class="btn btn-secondary" id="batchTagDialogCancel">取消</button>
+              <button class="btn btn-danger" id="batchClearTags">清空本次标签</button>
+              <button class="btn btn-success" id="confirmBatchTags">保存</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    `;
+
+    document.body.appendChild(dialog);
+
+    const linkTagStates = selectedLinks.map((link, index) => ({
+      id: link.id,
+      label: String(link.url || link.title || link.page || `条目 ${index + 1}`),
+      tags: Array.isArray(link.tags)
+        ? link.tags.map(tag => ({
+            text: String(tag?.text || '').trim(),
+            color: tag?.color || '#795548',
+            textColor: tag?.textColor || '#ffffff'
+          })).filter(tag => tag.text)
+        : []
+    }));
+    let currentTags = [];
+    const container = dialog.querySelector('#batchTagsContainer');
+    const textInput = dialog.querySelector('#batchTagTextInput');
+    const colorInput = dialog.querySelector('#batchTagColorInput');
+    const textColorInput = dialog.querySelector('#batchTagTextColorInput');
+    const batchSelectedTagSearchInput = dialog.querySelector('#batchSelectedTagSearchInput');
+    const batchSelectedTagSearchClear = dialog.querySelector('#batchSelectedTagSearchClear');
+    const batchDeleteMatchedTagsBtn = dialog.querySelector('#batchDeleteMatchedTagsBtn');
+    const batchSelectedTagSearchMeta = dialog.querySelector('#batchSelectedTagSearchMeta');
+    const historicalContainer = dialog.querySelector('#batchHistoricalTagsContainer');
+    const historicalTagSearchInput = dialog.querySelector('#batchHistoricalTagSearchInput');
+    const historicalTagSearchClear = dialog.querySelector('#batchHistoricalTagSearchClear');
+    textInput.maxLength = 2048;
+    let batchSelectedTagKeyword = '';
+
+    function batchTagSearchMatchesDialog(tagText) {
+      const keyword = batchSelectedTagKeyword.trim().toLowerCase();
+      if (!keyword) return true;
+      return String(tagText || '').trim().toLowerCase().includes(keyword);
+    }
+
+    function batchUpdateSearchMetaDialog() {
+      if (!batchSelectedTagSearchMeta) return;
+
+      const keyword = batchSelectedTagKeyword.trim();
+      if (!keyword) {
+        batchSelectedTagSearchMeta.textContent = `当前显示全部 ${selectedLinks.length} 个选中条目。`;
+        return;
+      }
+
+      let matchedLinks = 0;
+      let matchedTags = 0;
+      linkTagStates.forEach((linkState) => {
+        const count = linkState.tags.filter(tag => batchTagSearchMatchesDialog(tag.text)).length;
+        if (count > 0) {
+          matchedLinks += 1;
+          matchedTags += count;
+        }
+      });
+
+      batchSelectedTagSearchMeta.textContent = `搜索“${keyword}”后，显示 ${matchedLinks} 个条目，匹配到 ${matchedTags} 个已有标签。`;
+    }
+
+    textInput.placeholder = '输入新标签...';
+    colorInput.value = '#0B74FF';
+    colorInput.style.width = '40px';
+    colorInput.style.height = '40px';
+    colorInput.style.padding = '2px';
+    colorInput.style.cursor = 'pointer';
+    colorInput.style.border = '2px solid var(--border)';
+    colorInput.style.borderRadius = '6px';
+    textColorInput.style.width = '40px';
+    textColorInput.style.height = '40px';
+    textColorInput.style.padding = '2px';
+    textColorInput.style.cursor = 'pointer';
+    textColorInput.style.border = '2px solid var(--border)';
+    textColorInput.style.borderRadius = '6px';
+
+    const colorLabel = colorInput.closest('label');
+    const textColorLabel = textColorInput.closest('label');
+    [colorLabel, textColorLabel].forEach((label) => {
+      if (!label) return;
+      label.style.fontSize = '13px';
+      label.style.fontWeight = 'bold';
+      label.style.color = 'var(--text-muted)';
+      label.style.display = 'flex';
+      label.style.alignItems = 'center';
+      label.style.gap = '6px';
+      label.style.cursor = 'pointer';
+    });
+
+    if (historicalTagSearchInput) {
+      historicalTagSearchInput.placeholder = '搜索标签：空格分隔，匹配任意一个';
+      historicalTagSearchInput.setAttribute('style', 'width: 100%; padding: 10px 42px 10px 12px; border: 2px solid var(--border); border-radius: 6px; font-size: 14px; box-sizing: border-box;');
+    }
+
+    if (historicalTagSearchClear) {
+      historicalTagSearchClear.textContent = '×';
+      historicalTagSearchClear.title = '清空搜索';
+    }
+
+    const allExistingTags = [];
+    const tagMap = new Map();
+    allLinks.forEach(link => {
+      if (!Array.isArray(link.tags)) return;
+      link.tags.forEach(tag => {
+        const tagText = String(tag?.text || '').trim();
+        if (!tagText || tagMap.has(tagText)) return;
+        tagMap.set(tagText, true);
+        allExistingTags.push({
+          text: tagText,
+          color: tag?.color || '#795548',
+          textColor: tag?.textColor || '#ffffff'
+        });
+      });
+    });
+
+    function createBatchTagCapsule(tag, options = {}) {
+      const { editable = false, historical = false, index = -1 } = options;
+      const span = document.createElement('span');
+      const textC = tag.textColor || '#ffffff';
+      const isUrl = isTagUrl(tag.text);
+
+      span.className = `edit-tag-capsule ${isUrl ? 'edit-tag-capsule-url' : 'edit-tag-capsule-text'}`;
+      span.style.background = tag.color;
+      span.style.color = textC;
+      span.style.cursor = 'pointer';
+      span.title = editable ? '点击重新编辑标签' : '点击直接添加此标签';
+
+      if (historical) {
+        span.style.opacity = '0.7';
+        span.onmouseenter = () => span.style.opacity = '1';
+        span.onmouseleave = () => span.style.opacity = '0.7';
+      }
+
+      span.innerHTML = `
+        <span class="edit-tag-main">${escapeHtml(tag.text)}</span>
+        ${editable ? `<span class="edit-tag-delete" data-index="${index}">×</span>` : ''}
+      `;
+
+      span.addEventListener('click', (e) => {
+        if (editable) {
+          if (e.target.classList.contains('edit-tag-delete')) return;
+          textInput.value = tag.text;
+          colorInput.value = tag.color;
+          textColorInput.value = textC;
+          textInput.focus();
+          return;
+        }
+
+        const existingIndex = currentTags.findIndex(item => item.text === tag.text);
+        if (existingIndex >= 0) {
+          currentTags[existingIndex].color = tag.color;
+          currentTags[existingIndex].textColor = textC;
+        } else {
+          currentTags.push({ text: tag.text, color: tag.color, textColor: textC });
+        }
+        renderBatchEditTags();
+      });
+
+      return span;
+    }
+
+    function createPerLinkTagCapsule(linkState, tag, tagIndex) {
+      const span = document.createElement('span');
+      const textC = tag.textColor || '#ffffff';
+      span.className = `edit-tag-capsule ${isTagUrl(tag.text) ? 'edit-tag-capsule-url' : 'edit-tag-capsule-text'}`;
+      span.style.background = tag.color;
+      span.style.color = textC;
+      span.style.cursor = 'pointer';
+      span.title = '点击重新编辑标签';
+      span.innerHTML = `
+        <span class="edit-tag-main">${escapeHtml(tag.text)}</span>
+        <span class="edit-tag-delete" data-index="${tagIndex}">×</span>
+      `;
+
+      span.addEventListener('click', (e) => {
+        const deleteBtn = e.target.closest('.edit-tag-delete');
+        if (deleteBtn) {
+          e.stopPropagation();
+          linkState.tags.splice(tagIndex, 1);
+          renderBatchEditTags();
+          return;
+        }
+
+        textInput.value = tag.text;
+        colorInput.value = tag.color;
+        textColorInput.value = textC;
+        textInput.focus();
+      });
+
+      return span;
+    }
+
+    function renderBatchTagSection(containerEl, title, tags, options = {}) {
+      if (!tags.length) return;
+
+      const section = document.createElement('div');
+      section.className = 'edit-tag-section';
+
+      const titleEl = document.createElement('div');
+      titleEl.className = 'edit-tag-section-title';
+      titleEl.textContent = `${title} (${tags.length})`;
+
+      const body = document.createElement('div');
+      body.className = 'edit-tag-section-body';
+
+      tags.forEach(tag => {
+        const capsule = createBatchTagCapsule(tag, {
+          ...options,
+          index: options.editable ? currentTags.indexOf(tag) : -1
+        });
+        body.appendChild(capsule);
+      });
+
+      section.appendChild(titleEl);
+      section.appendChild(body);
+      containerEl.appendChild(section);
+    }
+
+    function renderBatchHistoricalTags(searchText = '') {
+      const keyword = searchText.trim().toLowerCase();
+      const filteredTags = keyword
+        ? allExistingTags.filter(tag => {
+            const text = (tag.text || '').toLowerCase();
+            const keywords = keyword.split(/\s+/).map(part => part.trim()).filter(Boolean);
+            return keywords.length > 0 && keywords.some(part => text.includes(part));
+          })
+        : allExistingTags;
+
+      if (filteredTags.length === 0) {
+        historicalContainer.innerHTML = keyword
+          ? '<span style="font-size: 12px; color: var(--text-muted); font-style: italic;">没有找到匹配的标签</span>'
+          : '<span style="font-size: 12px; color: var(--text-muted); font-style: italic;">暂无可用标签</span>';
+        return;
+      }
+
+      historicalContainer.innerHTML = '';
+      const historicalTextTags = filteredTags.filter(tag => !isTagUrl(tag.text));
+      const historicalUrlTags = filteredTags.filter(tag => isTagUrl(tag.text));
+
+      renderBatchTagSection(historicalContainer, '文字标签', historicalTextTags, { historical: true });
+      renderBatchTagSection(historicalContainer, '网址标签', historicalUrlTags, { historical: true });
+    }
+
+    function updateBatchHistoricalSearchClearButton() {
+      historicalTagSearchClear.style.display = historicalTagSearchInput.value.trim() ? 'block' : 'none';
+    }
+
+    function renderBatchEditTags() {
+      container.innerHTML = '';
+      if (currentTags.length === 0) {
+        container.innerHTML = '<span style="color:var(--text-muted); font-size:13px; font-style:italic;">暂无标签</span>';
+        return;
+      }
+
+      const textTags = currentTags.filter(tag => !isTagUrl(tag.text));
+      const urlTags = currentTags.filter(tag => isTagUrl(tag.text));
+
+      renderBatchTagSection(container, '文字标签', textTags, { editable: true });
+      renderBatchTagSection(container, '网址标签', urlTags, { editable: true });
+
+      container.querySelectorAll('.edit-tag-delete').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          const idx = parseInt(e.currentTarget.dataset.index, 10);
+          currentTags.splice(idx, 1);
+          renderBatchEditTags();
+        });
+      });
+    }
+
+    function renderBatchEditTags() {
+      container.innerHTML = '';
+
+      if (currentTags.length > 0) {
+        const filteredCurrentTags = currentTags.filter(tag => batchTagSearchMatchesDialog(tag.text));
+        const textTags = filteredCurrentTags.filter(tag => !isTagUrl(tag.text));
+        const urlTags = filteredCurrentTags.filter(tag => isTagUrl(tag.text));
+        renderBatchTagSection(container, '本次批量添加', textTags, { editable: true });
+        renderBatchTagSection(container, '本次批量添加网址标签', urlTags, { editable: true });
+      }
+
+      linkTagStates.forEach((linkState, index) => {
+        const visibleTags = linkState.tags.filter(tag => batchTagSearchMatchesDialog(tag.text));
+        if (batchSelectedTagKeyword.trim() && visibleTags.length === 0) {
+          return;
+        }
+
+        const section = document.createElement('div');
+        section.className = 'edit-tag-section batch-tag-link-section';
+
+        const titleEl = document.createElement('div');
+        titleEl.className = 'edit-tag-section-title';
+        titleEl.textContent = `条目 ${index + 1}`;
+
+        const metaEl = document.createElement('div');
+        metaEl.className = 'batch-tag-link-meta';
+        metaEl.textContent = linkState.label;
+
+        section.appendChild(titleEl);
+        section.appendChild(metaEl);
+
+        if (!visibleTags.length) {
+          const emptyEl = document.createElement('span');
+          emptyEl.style.color = 'var(--text-muted)';
+          emptyEl.style.fontSize = '13px';
+          emptyEl.style.fontStyle = 'italic';
+          emptyEl.textContent = '暂无标签';
+          section.appendChild(emptyEl);
+        } else {
+          const body = document.createElement('div');
+          body.className = 'edit-tag-section-body';
+          visibleTags.forEach((tag) => {
+            const tagIndex = linkState.tags.findIndex(item => item.text === tag.text);
+            if (tagIndex >= 0) {
+              body.appendChild(createPerLinkTagCapsule(linkState, linkState.tags[tagIndex], tagIndex));
+            }
+          });
+          section.appendChild(body);
+        }
+
+        container.appendChild(section);
+      });
+
+      container.querySelectorAll('.edit-tag-delete').forEach(btn => {
+        const section = btn.closest('.edit-tag-section');
+        const title = section?.querySelector('.edit-tag-section-title')?.textContent || '';
+        if (!title.startsWith('本次批量添加')) return;
+        btn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          const idx = parseInt(e.currentTarget.dataset.index, 10);
+          currentTags.splice(idx, 1);
+          renderBatchEditTags();
+        });
+      });
+
+      if (!currentTags.length && !linkTagStates.some(linkState => {
+        if (!batchSelectedTagKeyword.trim()) return true;
+        return linkState.tags.some(tag => batchTagSearchMatchesDialog(tag.text));
+      })) {
+        container.innerHTML = '<span style="color:var(--text-muted); font-size:13px; font-style:italic;">没有匹配当前搜索的标签</span>';
+      }
+
+      batchUpdateSearchMetaDialog();
+    }
+
+    function addNewBatchTag() {
+      const text = textInput.value.trim();
+      const color = colorInput.value;
+      const textColor = textColorInput.value;
+      if (!text) return;
+
+      const existingIndex = currentTags.findIndex(tag => tag.text === text);
+      if (existingIndex >= 0) {
+        currentTags[existingIndex].color = color;
+        currentTags[existingIndex].textColor = textColor;
+      } else {
+        currentTags.push({ text, color, textColor });
+      }
+
+      textInput.value = '';
+      renderBatchEditTags();
+    }
+
+    renderBatchEditTags();
+    renderBatchHistoricalTags();
+    updateBatchHistoricalSearchClearButton();
+    textInput.focus();
+
+    dialog.querySelector('#batchAddTagBtn').addEventListener('click', addNewBatchTag);
+    textInput.addEventListener('keypress', (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        addNewBatchTag();
+      }
+    });
+    historicalTagSearchInput.addEventListener('input', (e) => {
+      updateBatchHistoricalSearchClearButton();
+      renderBatchHistoricalTags(e.target.value);
+    });
+    historicalTagSearchClear.addEventListener('click', () => {
+      historicalTagSearchInput.value = '';
+      updateBatchHistoricalSearchClearButton();
+      renderBatchHistoricalTags('');
+      historicalTagSearchInput.focus();
+    });
+    batchSelectedTagSearchInput?.addEventListener('input', (e) => {
+      batchSelectedTagKeyword = String(e.target.value || '');
+      renderBatchEditTags();
+    });
+    batchSelectedTagSearchClear?.addEventListener('click', () => {
+      batchSelectedTagKeyword = '';
+      batchSelectedTagSearchInput.value = '';
+      batchSelectedTagSearchInput.focus();
+      renderBatchEditTags();
+    });
+    batchDeleteMatchedTagsBtn?.addEventListener('click', () => {
+      const keyword = batchSelectedTagKeyword.trim();
+      if (!keyword) {
+        alert('请先输入要过滤的标签内容');
+        return;
+      }
+
+      let removedCount = 0;
+
+      linkTagStates.forEach((linkState) => {
+        const beforeCount = linkState.tags.length;
+        linkState.tags = linkState.tags.filter((tag) => !batchTagSearchMatchesDialog(tag.text));
+        removedCount += beforeCount - linkState.tags.length;
+      });
+
+      const pendingBeforeCount = currentTags.length;
+      currentTags = currentTags.filter((tag) => !batchTagSearchMatchesDialog(tag.text));
+      removedCount += pendingBeforeCount - currentTags.length;
+
+      if (removedCount === 0) {
+        alert(`没有找到匹配过滤内容的标签：${keyword}`);
+        return;
+      }
+
+      renderBatchEditTags();
+    });
+
+    dialog.querySelector('#batchTagDialogClose').addEventListener('click', () => dialog.remove());
+    dialog.querySelector('#batchTagDialogCancel').addEventListener('click', () => dialog.remove());
+    dialog.querySelector('#batchClearTags').addEventListener('click', () => {
+      currentTags = [];
+      renderBatchEditTags();
+    });
+    dialog.querySelector('#confirmBatchTags').addEventListener('click', () => {
+      const nextTags = currentTags
+        .map(tag => ({
+          text: String(tag.text || '').trim(),
+          color: tag.color || '#795548',
+          textColor: tag.textColor || '#ffffff'
+        }))
+        .filter(tag => tag.text);
+
+      selectedLinks.forEach(link => {
+        const linkState = linkTagStates.find(item => item.id === link.id);
+        const existingTags = linkState
+          ? linkState.tags.map(tag => ({
+              text: String(tag.text || '').trim(),
+              color: tag.color || '#795548',
+              textColor: tag.textColor || '#ffffff'
+            })).filter(tag => tag.text)
+          : [];
+        nextTags.forEach(tag => {
+          const existingIndex = existingTags.findIndex(item => item.text === tag.text);
+          if (existingIndex >= 0) {
+            existingTags[existingIndex].color = tag.color;
+            existingTags[existingIndex].textColor = tag.textColor;
+          } else {
+            existingTags.push({ ...tag });
+          }
+        });
+        link.tags = existingTags;
+      });
+
+      chrome.storage.local.set({ links: allLinks }, () => {
+        renderLinks();
+        dialog.remove();
+      });
+    });
+
     dialog.addEventListener('click', (e) => {
       if (e.target === dialog) dialog.remove();
     });
@@ -2526,10 +3109,19 @@ document.addEventListener("DOMContentLoaded", () => {
   const batchMoveBtn = document.getElementById("batchMoveBtn");
   const batchDeleteBtn = document.getElementById("batchDeleteBtn");
   const batchCancelBtn = document.getElementById("batchCancelBtn");
+  let batchTagBtn = document.getElementById("batchTagBtn");
+  if (!batchTagBtn && batchCancelBtn?.parentElement) {
+    batchTagBtn = document.createElement("button");
+    batchTagBtn.id = "batchTagBtn";
+    batchTagBtn.className = "btn btn-warning";
+    batchTagBtn.textContent = "🏷️ 批量标签";
+    batchCancelBtn.insertAdjacentElement("afterend", batchTagBtn);
+  }
   
   if (batchMoveBtn) batchMoveBtn.addEventListener("click", showBatchMoveDialog);
   if (batchDeleteBtn) batchDeleteBtn.addEventListener("click", batchDeleteLinks);
   if (batchCancelBtn) batchCancelBtn.addEventListener("click", cancelBatchSelection);
+  if (batchTagBtn) batchTagBtn.addEventListener("click", showBatchTagDialog);
   
   // 批量工具栏全选复选框
   const batchSelectAllCheckbox = document.getElementById('batchSelectAllCheckbox');
