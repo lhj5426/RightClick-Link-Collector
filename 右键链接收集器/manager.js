@@ -15,10 +15,16 @@ let pageSortOrder = "off"; // "off" 不按页数排序, "asc" 少→多, "desc" 
 let unvisitedMode = "aggregate"; // "aggregate" 聚合模式, "inGroup" 组内模式
 let currentSearchKeywords = []; // 当前搜索的多关键字
 let selectedLinkIds = new Set();
+let favoriteLinkIds = [];
+let favoriteSearchTags = [];
 const STORAGE_KEY = 'tabSaverVisitedLinks';
 const GROUP_COLLAPSE_STATE_KEY = 'tabSaverGroupCollapseStates';
 const DEFAULT_GROUPS = [];
 const EXPORT_PREFIX_STORAGE_KEY = 'exportFilePrefix';
+const FAVORITE_LINK_IDS_STORAGE_KEY = 'managerFavoriteLinkIds';
+const FAVORITE_SEARCH_TAGS_STORAGE_KEY = 'managerFavoriteSearchTags';
+const FAVORITE_SIDEBAR_OPEN_KEY = 'managerFavoriteSidebarOpen';
+const FAVORITE_LINK_ORDER_MIGRATED_KEY = 'managerFavoriteLinkOrderMigrated';
 
 if (currentView === "thumbGrid") {
   currentView = "all";
@@ -68,6 +74,14 @@ document.addEventListener("DOMContentLoaded", () => {
   const headerExportDataBtn = document.getElementById("exportDataBtn");
   const headerImportDataBtn = document.getElementById("importDataBtn");
   const headerImportFileInput = document.getElementById("importFileInput");
+  const favoriteSidebar = document.getElementById("favoriteSidebar");
+  const favoriteSidebarToggle = document.getElementById("favoriteSidebarToggle");
+  const favoriteSidebarClose = document.getElementById("favoriteSidebarClose");
+  const favoriteLinksList = document.getElementById("favoriteLinksList");
+  const favoriteTagsList = document.getElementById("favoriteTagsList");
+  const favoriteSidebarTitles = favoriteSidebar ? favoriteSidebar.querySelectorAll('.favorite-sidebar-title') : [];
+  const favoriteTagInput = document.getElementById("favoriteTagInput");
+  const favoriteTagAddBtn = document.getElementById("favoriteTagAddBtn");
 
   const headerLeft = document.querySelector(".header-left");
   const toolbarActions = document.querySelector(".toolbar-actions");
@@ -134,6 +148,197 @@ document.addEventListener("DOMContentLoaded", () => {
       .replace(/[<>:"/\\|?*\u0000-\u001F]/g, ' ')
       .replace(/\s+/g, ' ')
       .trim();
+  }
+
+  function normalizeFavoriteId(id) {
+    const numberId = Number(id);
+    return Number.isFinite(numberId) ? numberId : id;
+  }
+
+  function normalizeFavoriteSearchTag(value) {
+    return String(value || '').replace(/\s+/g, ' ').trim();
+  }
+
+  function isFavoriteLink(linkId) {
+    const normalizedId = normalizeFavoriteId(linkId);
+    return favoriteLinkIds.some(id => normalizeFavoriteId(id) === normalizedId);
+  }
+
+  function saveFavoriteSidebarData() {
+    chrome.storage.local.set({
+      [FAVORITE_LINK_IDS_STORAGE_KEY]: favoriteLinkIds,
+      [FAVORITE_SEARCH_TAGS_STORAGE_KEY]: favoriteSearchTags
+    });
+  }
+
+  function setFavoriteSidebarOpen(open) {
+    if (!favoriteSidebar) return;
+    favoriteSidebar.classList.toggle('open', !!open);
+    favoriteSidebar.setAttribute('aria-hidden', open ? 'false' : 'true');
+    document.body.classList.toggle('favorite-sidebar-open', !!open);
+    localStorage.setItem(FAVORITE_SIDEBAR_OPEN_KEY, open ? 'true' : 'false');
+  }
+
+  function syncFavoriteButtons(scope = document) {
+    scope.querySelectorAll('.link-btn-favorite, .thumb-favorite-btn').forEach((button) => {
+      const isFav = isFavoriteLink(button.dataset.id);
+      button.classList.toggle('is-favorite', isFav);
+      button.textContent = button.classList.contains('thumb-favorite-btn')
+        ? (isFav ? '♥' : '♡')
+        : (isFav ? '♥ 已收藏' : '♡ 收藏');
+      button.title = isFav ? '取消收藏' : '收藏到侧栏';
+    });
+  }
+
+  function getFavoriteLinkTitle(link) {
+    return String(link?.title || link?.page || link?.url || '未命名链接').replace(/\s+/g, ' ').trim();
+  }
+
+  function scrollToLinkCard(linkId) {
+    const normalizedId = String(linkId);
+    let card = document.querySelector(`.link-card[data-link-id="${normalizedId}"], .thumb-card[data-link-id="${normalizedId}"]`);
+
+    if (!card && searchInput.value.trim()) {
+      searchInput.value = '';
+      renderLinks();
+      card = document.querySelector(`.link-card[data-link-id="${normalizedId}"], .thumb-card[data-link-id="${normalizedId}"]`);
+    }
+
+    if (!card && currentView !== 'all') {
+      currentView = 'all';
+      localStorage.setItem('currentView', currentView);
+      syncViewTabState();
+      renderLinks();
+      card = document.querySelector(`.link-card[data-link-id="${normalizedId}"], .thumb-card[data-link-id="${normalizedId}"]`);
+    }
+
+    if (!card) return;
+    card.scrollIntoView({ behavior: 'auto', block: 'center' });
+    card.classList.add('favorite-jump-highlight');
+    setTimeout(() => card.classList.remove('favorite-jump-highlight'), 900);
+  }
+
+  function applyFavoriteSearchTag(tagText) {
+    const text = normalizeFavoriteSearchTag(tagText);
+    if (!text) return;
+    filterByKeyword(text);
+  }
+
+  function addFavoriteSearchTag(value) {
+    const text = normalizeFavoriteSearchTag(value);
+    if (!text) return;
+    const exists = favoriteSearchTags.some(tag => tag.toLowerCase() === text.toLowerCase());
+    if (!exists) {
+      favoriteSearchTags.push(text);
+      saveFavoriteSidebarData();
+      renderFavoriteSidebar();
+    }
+    if (favoriteTagInput) favoriteTagInput.value = '';
+  }
+
+  function removeFavoriteSearchTag(tagText) {
+    const text = normalizeFavoriteSearchTag(tagText);
+    favoriteSearchTags = favoriteSearchTags.filter(tag => tag !== text);
+    saveFavoriteSidebarData();
+    renderFavoriteSidebar();
+  }
+
+  function toggleFavoriteLink(linkId) {
+    const normalizedId = normalizeFavoriteId(linkId);
+    if (isFavoriteLink(normalizedId)) {
+      favoriteLinkIds = favoriteLinkIds.filter(id => normalizeFavoriteId(id) !== normalizedId);
+    } else {
+      favoriteLinkIds.push(normalizedId);
+    }
+    saveFavoriteSidebarData();
+    renderFavoriteSidebar();
+    syncFavoriteButtons();
+  }
+
+  function removeFavoriteLink(linkId) {
+    const normalizedId = normalizeFavoriteId(linkId);
+    favoriteLinkIds = favoriteLinkIds.filter(id => normalizeFavoriteId(id) !== normalizedId);
+    saveFavoriteSidebarData();
+    renderFavoriteSidebar();
+    syncFavoriteButtons();
+  }
+
+  function cleanupFavoriteLinks() {
+    const validIds = new Set(allLinks.map(link => String(link.id)));
+    const nextIds = favoriteLinkIds.filter(id => validIds.has(String(id)));
+    if (nextIds.length !== favoriteLinkIds.length) {
+      favoriteLinkIds = nextIds;
+      saveFavoriteSidebarData();
+    }
+  }
+
+  function renderFavoriteSidebar() {
+    if (!favoriteLinksList || !favoriteTagsList) return;
+
+    cleanupFavoriteLinks();
+    favoriteLinksList.innerHTML = '';
+    const favoriteLinks = favoriteLinkIds
+      .map(id => allLinks.find(link => String(link.id) === String(id)))
+      .filter(Boolean);
+
+    if (favoriteSidebarTitles[0]) favoriteSidebarTitles[0].textContent = `❤ 收藏夹 (${favoriteLinks.length})`;
+    if (favoriteSidebarTitles[1]) favoriteSidebarTitles[1].textContent = `🏷 标签 (${favoriteSearchTags.length})`;
+
+    if (favoriteLinks.length === 0) {
+      favoriteLinksList.innerHTML = '<div class="favorite-sidebar-empty">暂无收藏条目</div>';
+    } else {
+      favoriteLinks.forEach((link, index) => {
+        const item = document.createElement('div');
+        item.className = 'favorite-sidebar-item';
+        item.dataset.id = link.id;
+        item.title = getFavoriteLinkTitle(link);
+        item.innerHTML = `
+          <span class="favorite-sidebar-index">${index + 1}.</span>
+          <span class="favorite-sidebar-item-text">${escapeHtml(getFavoriteLinkTitle(link))}</span>
+          <button type="button" class="favorite-sidebar-remove" data-id="${link.id}" title="取消收藏">✕</button>
+        `;
+        item.addEventListener('click', (e) => {
+          if (e.target.closest('.favorite-sidebar-remove')) return;
+          scrollToLinkCard(link.id);
+        });
+        favoriteLinksList.appendChild(item);
+      });
+    }
+
+    favoriteTagsList.innerHTML = '';
+    if (favoriteSearchTags.length === 0) {
+      favoriteTagsList.innerHTML = '<div class="favorite-sidebar-empty">暂无快捷标签</div>';
+    } else {
+      favoriteSearchTags.forEach((tag) => {
+        const item = document.createElement('button');
+        item.type = 'button';
+        item.className = 'favorite-tag-pill';
+        item.title = `搜索：${tag}`;
+        item.innerHTML = `
+          <span class="favorite-tag-pill-text">${escapeHtml(tag)}</span>
+          <span class="favorite-tag-pill-remove" data-tag="${escapeHtml(tag)}" title="删除快捷标签">✕</span>
+        `;
+        item.addEventListener('click', (e) => {
+          if (e.target.closest('.favorite-tag-pill-remove')) return;
+          applyFavoriteSearchTag(tag);
+        });
+        favoriteTagsList.appendChild(item);
+      });
+    }
+
+    favoriteLinksList.querySelectorAll('.favorite-sidebar-remove[data-id]').forEach((button) => {
+      button.addEventListener('click', (e) => {
+        e.stopPropagation();
+        removeFavoriteLink(e.currentTarget.dataset.id);
+      });
+    });
+
+    favoriteTagsList.querySelectorAll('.favorite-tag-pill-remove[data-tag]').forEach((button) => {
+      button.addEventListener('click', (e) => {
+        e.stopPropagation();
+        removeFavoriteSearchTag(e.currentTarget.dataset.tag);
+      });
+    });
   }
 
   let autoCloseMode = 'global';
@@ -530,10 +735,32 @@ document.addEventListener("DOMContentLoaded", () => {
   
   // 加载链接和分组
   function loadLinks() {
-    chrome.storage.local.get({ links: [], groups: DEFAULT_GROUPS, autoCloseTab: false, globalAutoCloseTab: false, autoCloseTabMode: 'global', toastDurationSeconds: 3, exportFilePrefix: '' }, (res) => {
+    chrome.storage.local.get({
+      links: [],
+      groups: DEFAULT_GROUPS,
+      autoCloseTab: false,
+      globalAutoCloseTab: false,
+      autoCloseTabMode: 'global',
+      toastDurationSeconds: 3,
+      exportFilePrefix: '',
+      [FAVORITE_LINK_IDS_STORAGE_KEY]: [],
+      [FAVORITE_SEARCH_TAGS_STORAGE_KEY]: []
+    }, (res) => {
       allLinks = Array.isArray(res.links) ? res.links : [];
+      favoriteLinkIds = Array.isArray(res[FAVORITE_LINK_IDS_STORAGE_KEY])
+        ? res[FAVORITE_LINK_IDS_STORAGE_KEY].map(normalizeFavoriteId)
+        : [];
+      favoriteSearchTags = Array.isArray(res[FAVORITE_SEARCH_TAGS_STORAGE_KEY])
+        ? res[FAVORITE_SEARCH_TAGS_STORAGE_KEY].map(normalizeFavoriteSearchTag).filter(Boolean)
+        : [];
       
       // 迁移旧版 note 到 tags
+      if (localStorage.getItem(FAVORITE_LINK_ORDER_MIGRATED_KEY) !== 'true') {
+        favoriteLinkIds = [...favoriteLinkIds].reverse();
+        chrome.storage.local.set({ [FAVORITE_LINK_IDS_STORAGE_KEY]: favoriteLinkIds });
+        localStorage.setItem(FAVORITE_LINK_ORDER_MIGRATED_KEY, 'true');
+      }
+
       let needsSave = false;
       allLinks.forEach(link => {
         if (link.note !== undefined && !link.tags) {
@@ -581,6 +808,7 @@ document.addEventListener("DOMContentLoaded", () => {
       autoCloseMode = res.autoCloseTabMode === 'group' ? 'group' : 'global';
       syncAutoCloseUI();
       renderLinks();
+      renderFavoriteSidebar();
       applyCollapsedState();
       updateCount();
       updateGroupCount();
@@ -1170,6 +1398,7 @@ document.addEventListener("DOMContentLoaded", () => {
     if (visible.length === 0) {
       linksList.innerHTML = "";
       emptyState.classList.remove("hidden");
+      renderFavoriteSidebar();
       refreshGroupJumpOptions();
       updateFloatingToolPositions();
       return;
@@ -1178,6 +1407,7 @@ document.addEventListener("DOMContentLoaded", () => {
     if (isThumbnailMode() && getDisplayModeLinks(visible).length === 0) {
       emptyState.classList.add("hidden");
       linksList.innerHTML = '<div class="empty-state"><p>当前筛选结果里没有可用快照</p></div>';
+      renderFavoriteSidebar();
       refreshGroupJumpOptions();
       updateFloatingToolPositions();
       return;
@@ -1202,6 +1432,8 @@ document.addEventListener("DOMContentLoaded", () => {
     }
     
     applyCollapsedState();
+    syncFavoriteButtons(linksList);
+    renderFavoriteSidebar();
     refreshGroupJumpOptions();
     updateFloatingToolPositions();
   }
@@ -1583,6 +1815,7 @@ document.addEventListener("DOMContentLoaded", () => {
       <label class="thumb-select-toggle" title="选择此缩略图">
         <input type="checkbox" class="link-checkbox thumb-select-checkbox" data-id="${link.id}" ${isLinkSelected(link.id) ? 'checked' : ''}>
       </label>
+      <button type="button" class="thumb-favorite-btn" data-id="${link.id}" title="收藏到侧栏">♡</button>
       <button type="button" class="thumb-media" id="thumb-${link.id}" style="--thumb-border-color: ${mediaBorderColor};" title="查看大图和详细信息">
         ${overlayHtml}
         <div class="thumb-empty">🖼️</div>
@@ -1628,6 +1861,15 @@ document.addEventListener("DOMContentLoaded", () => {
       checkbox.addEventListener('change', () => {
         setLinkSelected(link.id, checkbox.checked);
         updateBatchToolbar();
+      });
+    }
+
+    const favoriteBtn = card.querySelector('.thumb-favorite-btn');
+    if (favoriteBtn) {
+      favoriteBtn.addEventListener('click', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        toggleFavoriteLink(link.id);
       });
     }
 
@@ -1750,6 +1992,7 @@ document.addEventListener("DOMContentLoaded", () => {
         ${tagsDisplay}
         ${visitInfo}
         <div class="link-actions">
+          <button class="link-btn link-btn-favorite" data-id="${link.id}" title="收藏到侧栏">♡ 收藏</button>
           <button class="link-btn link-btn-note" data-id="${link.id}">🏷️ 标签</button>
           <button class="link-btn link-btn-move" data-id="${link.id}">📁 移动</button>
           <button class="link-btn link-btn-copy" data-url="${escapeHtml(link.url)}">📋 复制</button>
@@ -1847,6 +2090,12 @@ document.addEventListener("DOMContentLoaded", () => {
       if (e.button === 0) {
         recordVisit(e.currentTarget.dataset.url);
       }
+    });
+
+    // 收藏按钮
+    card.querySelector(".link-btn-favorite").addEventListener("click", (e) => {
+      const id = parseInt(e.currentTarget.dataset.id, 10);
+      toggleFavoriteLink(id);
     });
     
     // 备注按钮
@@ -3258,6 +3507,8 @@ document.addEventListener("DOMContentLoaded", () => {
       timestamp: new Date().toISOString(),
       links: allLinks,
       groups: allGroups,
+      favoriteLinkIds,
+      favoriteSearchTags,
       snapshots: snapshots
     };
     
@@ -3299,6 +3550,10 @@ document.addEventListener("DOMContentLoaded", () => {
           // 覆盖模式
           allLinks = data.links || [];
           allGroups = data.groups || [];
+          favoriteLinkIds = Array.isArray(data.favoriteLinkIds) ? data.favoriteLinkIds.map(normalizeFavoriteId) : [];
+          favoriteSearchTags = Array.isArray(data.favoriteSearchTags)
+            ? data.favoriteSearchTags.map(normalizeFavoriteSearchTag).filter(Boolean)
+            : [];
           
           // 准备覆盖快照
           if (hasSnapshots) {
@@ -3352,8 +3607,19 @@ document.addEventListener("DOMContentLoaded", () => {
             }
           }
 
+          const importedFavoriteIds = Array.isArray(data.favoriteLinkIds)
+            ? data.favoriteLinkIds
+                .map(id => oldToNewLinkIdMap[id])
+                .filter(id => id !== undefined && id !== null)
+            : [];
+          const importedFavoriteTags = Array.isArray(data.favoriteSearchTags)
+            ? data.favoriteSearchTags.map(normalizeFavoriteSearchTag).filter(Boolean)
+            : [];
+
           allLinks = [...allLinks, ...importedLinks];
           allGroups = [...allGroups, ...importedGroups];
+          favoriteLinkIds = Array.from(new Set([...favoriteLinkIds, ...importedFavoriteIds].map(id => String(id)))).map(normalizeFavoriteId);
+          favoriteSearchTags = Array.from(new Set([...favoriteSearchTags, ...importedFavoriteTags]));
         }
         
         // 保存快照到 IndexedDB
@@ -3364,9 +3630,12 @@ document.addEventListener("DOMContentLoaded", () => {
         // 保存到存储
         chrome.storage.local.set({ 
           links: allLinks,
-          groups: allGroups
+          groups: allGroups,
+          [FAVORITE_LINK_IDS_STORAGE_KEY]: favoriteLinkIds,
+          [FAVORITE_SEARCH_TAGS_STORAGE_KEY]: favoriteSearchTags
         }, () => {
           renderLinks();
+          renderFavoriteSidebar();
           updateCount();
           updateGroupCount();
           updateBadge();
@@ -4633,6 +4902,33 @@ document.addEventListener("DOMContentLoaded", () => {
       searchInput.focus();
     });
   }
+
+  favoriteSidebarToggle?.addEventListener('click', () => {
+    setFavoriteSidebarOpen(true);
+  });
+
+  favoriteSidebarClose?.addEventListener('click', () => {
+    setFavoriteSidebarOpen(false);
+  });
+
+  favoriteTagAddBtn?.addEventListener('click', () => {
+    addFavoriteSearchTag(favoriteTagInput?.value || '');
+  });
+
+  favoriteTagInput?.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      addFavoriteSearchTag(e.currentTarget.value);
+    }
+  });
+
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && favoriteSidebar?.classList.contains('open')) {
+      setFavoriteSidebarOpen(false);
+    }
+  });
+
+  setFavoriteSidebarOpen(localStorage.getItem(FAVORITE_SIDEBAR_OPEN_KEY) === 'true');
   
   // 主题切换
   chrome.storage.local.get(["themeMode"], (res) => {

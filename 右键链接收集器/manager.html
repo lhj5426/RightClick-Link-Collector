@@ -8,6 +8,28 @@
   <link rel="stylesheet" href="manager.css" />
 </head>
 <body>
+  <button id="favoriteSidebarToggle" class="favorite-sidebar-toggle" type="button" title="打开收藏侧栏">
+    <span class="favorite-sidebar-toggle-icon">☷</span>
+    <span class="favorite-sidebar-toggle-text">侧栏</span>
+  </button>
+  <aside id="favoriteSidebar" class="favorite-sidebar" aria-hidden="true">
+    <div class="favorite-sidebar-header">
+      <h2>收藏侧栏</h2>
+      <button id="favoriteSidebarClose" class="favorite-sidebar-close" type="button" title="关闭">✕</button>
+    </div>
+    <section class="favorite-sidebar-section">
+      <div class="favorite-sidebar-title">❤ 收藏夹</div>
+      <div id="favoriteLinksList" class="favorite-sidebar-list"></div>
+    </section>
+    <section class="favorite-sidebar-section">
+      <div class="favorite-sidebar-title">🏷 标签</div>
+      <div class="favorite-tag-add">
+        <input id="favoriteTagInput" type="text" placeholder="添加快捷搜索标签..." maxlength="80">
+        <button id="favoriteTagAddBtn" type="button">添加</button>
+      </div>
+      <div id="favoriteTagsList" class="favorite-sidebar-list"></div>
+    </section>
+  </aside>
   <div class="container">
     <header class="header">
       <div class="header-left">
