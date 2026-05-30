@@ -193,29 +193,29 @@ async function fetchGalleryMetadata(url) {
   }
 }
 
-// 榛樿娌℃湁鍒嗙粍锛岀敤鎴疯嚜宸卞垱寤?
+// 默认没有分组，用户自行创建
 const DEFAULT_GROUPS = [];
-let menuCreationInProgress = false; // 闃叉骞跺彂鍒涘缓鑿滃崟
+let menuCreationInProgress = false; // 防止并发创建菜单
 
 function createContextMenus() {
-  // 濡傛灉宸茬粡鍦ㄥ垱寤鸿彍鍗曪紝灏辫烦杩囪繖娆¤姹?
+  // 如果已经在创建菜单，跳过这次请求
   if (menuCreationInProgress) {
-    console.log("鑿滃崟鍒涘缓宸插湪杩涜涓紝璺宠繃鏈璇锋眰");
+    console.log("菜单创建已在进行中，跳过本次请求");
     return;
   }
   
   menuCreationInProgress = true;
   
-  // 鍏堝垹闄ゆ墍鏈夎彍鍗曪紝绛夊緟瀹屾垚鍚庡啀鍒涘缓
+  // 先删除所有菜单，等待完成后再创建
   chrome.contextMenus.removeAll(() => {
     setTimeout(() => {
       chrome.storage.local.get({ groups: DEFAULT_GROUPS }, (res) => {
         const groups = Array.isArray(res.groups) ? res.groups : DEFAULT_GROUPS;
         
-        console.log("鍒涘缓鍙抽敭鑿滃崟锛屽綋鍓嶅垎缁勬暟閲?", groups.length);
+        console.log("创建右键菜单，当前分组数量:", groups.length);
         
         if (groups.length === 0) {
-          // 娌℃湁鍒嗙粍鏃讹紝鐩存帴淇濆瓨鍒板叏灞€
+          // 没有分组时，直接保存到全局
           chrome.contextMenus.create({
             id: "saveLink_global",
             title: "\u0030-\u4fdd\u5b58\u94fe\u63a5\u5230\u6536\u96c6\u5668",
@@ -228,16 +228,16 @@ function createContextMenus() {
             contexts: ["page"]
           });
           
-          console.log("鍒涘缓浜嗙畝鍗曡彍鍗曪紙鏃犲垎缁勶級");
+          console.log("创建了简单菜单（无分组）");
         } else {
-          // 鏈夊垎缁勬椂锛屾樉绀哄瓙鑿滃崟
+          // 有分组时，显示子菜单
           chrome.contextMenus.create({
             id: "saveLinkParent",
             title: "\u0030-\u4fdd\u5b58\u94fe\u63a5\u5230\u6536\u96c6\u5668",
             contexts: ["link"]
           });
           
-          // 鍏ㄥ眬閫夐」锛堜笉灞炰簬浠讳綍鍒嗙粍锛?
+          // 全局选项（不属于任何分组）
           chrome.contextMenus.create({
             id: "saveLink_global",
             parentId: "saveLinkParent",
@@ -245,9 +245,9 @@ function createContextMenus() {
             contexts: ["link"]
           });
           
-          // 涓烘瘡涓垎缁勫垱寤哄瓙鑿滃崟椤?
+          // 为每个分组创建子菜单项
           groups.forEach((group, index) => {
-            console.log(`鍒涘缓鍒嗙粍鑿滃崟 ${index + 1}:`, group.name);
+            console.log(`创建分组菜单 ${index + 1}:`, group.name);
             chrome.contextMenus.create({
               id: `saveLink_${group.id}`,
               parentId: "saveLinkParent",
@@ -257,7 +257,7 @@ function createContextMenus() {
           });
           
 
-          // 淇濆瓨椤甸潰鐨勭埗鑿滃崟
+          // 保存页面的父菜单
           chrome.contextMenus.create({
             id: "savePageParent",
             title: "\u0030-\u4fdd\u5b58\u5f53\u524d\u9875\u9762\u5230\u6536\u96c6\u5668",
@@ -272,7 +272,7 @@ function createContextMenus() {
             contexts: ["page"]
           });
           
-          // 涓烘瘡涓垎缁勫垱寤哄瓙鑿滃崟椤?
+          // 为每个分组创建子菜单项
           groups.forEach(group => {
             chrome.contextMenus.create({
               id: `savePage_${group.id}`,
@@ -283,7 +283,7 @@ function createContextMenus() {
           });
           
 
-          console.log(`鍒涘缓浜嗗甫鍒嗙粍鐨勮彍鍗曪紙${groups.length} 涓垎缁勶級`);
+          console.log(`创建了带分组的菜单（${groups.length} 个分组）`);
         }
         
         menuCreationInProgress = false;
@@ -296,7 +296,7 @@ createContextMenus();
 chrome.runtime.onInstalled.addListener(createContextMenus);
 chrome.runtime.onStartup.addListener(createContextMenus);
 
-// 鐩戝惉鏉ヨ嚜绠＄悊椤甸潰鐨勬秷鎭紝鏇存柊鑿滃崟
+// 监听来自管理页面的消息，更新菜单
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.action === 'updateContextMenus') {
     createContextMenus();
@@ -344,7 +344,7 @@ function updateBadge() {
   });
 }
 
-// 鐩戝惉瀛樺偍鍙樺寲鑷姩鏇存柊瑙掓爣锛堣В鍐抽潤榛樹笉鏄剧ず鐨勯棶棰橈級
+// 监听存储变化，自动更新角标
 chrome.storage.onChanged.addListener((changes, area) => {
   if (area === 'local' && changes.links) {
     updateBadge();
@@ -357,7 +357,7 @@ chrome.runtime.onStartup.addListener(updateBadge);
 // 瀹夎鏃舵洿鏂拌鏍?
 chrome.runtime.onInstalled.addListener(() => {
   updateBadge();
-  // 鍒濆鍖栫┖鍒嗙粍鍒楄〃
+  // 初始化空分组列表
   chrome.storage.local.get({ groups: null }, (res) => {
     if (!res.groups) {
       chrome.storage.local.set({ groups: DEFAULT_GROUPS });
@@ -371,7 +371,7 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
     
 
     
-    // 瑙ｆ瀽鑿滃崟ID鑾峰彇鍒嗙粍ID
+    // 解析菜单 ID 获取分组 ID
     let groupId = null;
     let isSaveLink = false;
     
@@ -421,7 +421,7 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
     };
     const shouldExtractGalleryPageCount = isGalleryUrlWithPageCount(savedUrl);
 
-    // 鑾峰彇鍒嗙粍鍚嶇О鍜岄鑹诧紙鐙珛鑾峰彇锛岀‘淇濅笉褰卞搷淇濆瓨娴佺▼锛?
+    // 获取分组名称和颜色，独立读取以免影响保存流程
     let groupName = "\u5168\u5c40\uff08\u65e0\u5206\u7ec4\uff09";
     let groupColor = "#ebf8ff"; // 榛樿娣¤摑鑹茶儗鏅?
     let groupTextColor = "#1967d2"; // 榛樿鏂囧瓧棰滆壊
@@ -435,7 +435,7 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
         groupTextColor = group.textColor || "#FFFFFF";
       }
       
-      // 棰勫厛璇诲彇鍙抽敭浣嶇疆淇℃伅
+      // 预先读取右键位置信息
       const lastClick = lastRightClickCache || storageData.lastRightClick || {};
       const normalizeComparableUrl = (value) => String(value || '').replace(/#.*$/, '');
       const targetLinkUrl = normalizeComparableUrl(info.linkUrl || savedUrl);
@@ -461,7 +461,7 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
         }
       }
     } catch (e) {
-      console.warn("璇诲彇瀛樺偍淇℃伅澶辫触:", e);
+      console.warn("读取存储信息失败:", e);
     }
 
     // === 步骤 1：独立截取快照 ===
@@ -473,10 +473,10 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
           await DB.saveSnapshot(itemId, dataUrl);
           item.hasSnapshot = true;
           snapshotDataUrl = dataUrl;
-          console.log("鉁?蹇収鎴彇鎴愬姛");
+          console.log("✅ 快照截取成功");
         }
       } catch (e) {
-        console.warn("鈿狅笍 蹇収鎴彇澶辫触:", e.message);
+        console.warn("⚠️ 快照截取失败:", e.message);
       }
     }
 
@@ -582,10 +582,10 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
           } else {
             item.clickPoint = createClickPointFromMenuInfo(info, res);
           }
-          console.log("鉁?椤甸潰淇℃伅鑾峰彇鎴愬姛");
+          console.log("✅ 页面信息获取成功");
         }
       } catch (e) {
-        console.warn("鈿狅笍 鑴氭湰鎵ц澶辫触:", e.message);
+        console.warn("⚠️ 脚本执行失败:", e.message);
       }
     }
 
@@ -607,13 +607,13 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
     await saveLinkItem(item, tab?.id, groupName, snapshotDataUrl, groupColor, groupTextColor, tab?.url);
     
   } catch (err) {
-    console.error("鉂?contextMenus.onClicked 涓ラ噸閿欒:", err);
+    console.error("❌ contextMenus.onClicked 严重错误:", err);
     
-    // 鏈€缁堝厹搴曪細鍗充娇鍓嶉潰鍑洪敊锛屼篃灏濊瘯浠ユ渶绠€鏂瑰紡淇濆瓨
+    // 最终兜底：即使前面出错，也尝试以最简单方式保存
     try {
       const fallbackItem = {
         id: Date.now(),
-        title: String(info.linkText || info.selectionText || "鏈煡"),
+        title: String(info.linkText || info.selectionText || "未知"),
         url: String(info.linkUrl || info.pageUrl || ""),
         page: "",
         date: formatDateDDMMYYYY(new Date()),
@@ -624,10 +624,10 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
       };
       if (fallbackItem.url) {
         await saveLinkItem(fallbackItem, tab?.id);
-        console.log("鉁?鍏滃簳淇濆瓨鎴愬姛");
+        console.log("✅ 兜底保存成功");
       }
     } catch (fallbackErr) {
-      console.error("鉂?鍏滃簳淇濆瓨涔熷け璐?", fallbackErr);
+      console.error("❌ 兜底保存也失败:", fallbackErr);
     }
   }
 });
@@ -757,12 +757,12 @@ async function sendNotificationToTab(tabId, tabUrl, payload) {
   }
 }
 
-// 淇濆瓨閾炬帴鍒板瓨鍌紙Promise 鐗堬紝纭繚鍙 await锛?
+// 保存链接到存储，Promise 版，确保可被 await
 function saveLinkItem(item, tabId, groupName = "\u5168\u5c40\uff08\u65e0\u5206\u7ec4\uff09", snapshotDataUrl = null, groupColor = "#ebf8ff", groupTextColor = "#1967d2", tabUrl = "") {
   return new Promise((resolve, reject) => {
     chrome.storage.local.get({ links: [] }, (res) => {
       if (chrome.runtime.lastError) {
-        console.error("璇诲彇閾炬帴鍒楄〃澶辫触:", chrome.runtime.lastError);
+        console.error("读取链接列表失败:", chrome.runtime.lastError);
         reject(chrome.runtime.lastError);
         return;
       }
@@ -772,16 +772,16 @@ function saveLinkItem(item, tabId, groupName = "\u5168\u5c40\uff08\u65e0\u5206\u
       
       chrome.storage.local.set({ links }, () => {
         if (chrome.runtime.lastError) {
-          console.error("淇濆瓨閾炬帴澶辫触:", chrome.runtime.lastError);
+          console.error("保存链接失败:", chrome.runtime.lastError);
           reject(chrome.runtime.lastError);
           return;
         }
         
-        console.log("鉁?閾炬帴宸蹭繚瀛?", item.url.substring(0, 60), "蹇収:", item.hasSnapshot);
+        console.log("✅ 链接已保存", item.url.substring(0, 60), "快照:", item.hasSnapshot);
         
-        // 鍙戦€侀〉闈㈤€氱煡锛堟樉绀哄垎缁勫悕銆佹椂闂淬€佹埅鍥剧姸鎬併€佺缉鐣ュ浘锛?
+        // 发送页面通知，显示分组名、时间、截图状态和缩略图
         if (tabId) {
-          // 鑷姩鍏抽棴鏍囩椤甸€昏緫 - 鑾峰彇閰嶇疆骞朵紶閫掔粰 content script
+          // 自动关闭标签页逻辑：获取配置并传递给 content script
           chrome.storage.local.get({ autoCloseTab: false, globalAutoCloseTab: false, autoCloseTabMode: 'global', groups: [], toastDurationSeconds: 3 }, async (data) => {
             const autoCloseMode = data.autoCloseTabMode === 'group' ? 'group' : 'global';
             const currentGroup = Array.isArray(data.groups) ? data.groups.find(g => g.id === item.groupId) : null;
@@ -793,15 +793,15 @@ function saveLinkItem(item, tabId, groupName = "\u5168\u5c40\uff08\u65e0\u5206\u
               title: item.title,
               url: item.url,
               groupName: groupName,
-              groupColor: groupColor, // 浼犻€掑垎缁勯鑹?
-              groupTextColor: groupTextColor, // 浼犻€掑垎缁勬枃瀛楅鑹?
+              groupColor: groupColor, // 传递分组颜色
+              groupTextColor: groupTextColor, // 传递分组文字颜色
               date: item.date,
               hasSnapshot: item.hasSnapshot,
               snapshotDataUrl: snapshotDataUrl,
               clickPoint: item.clickPoint || null,
               autoClose: autoClose,
               toastDurationSeconds: Math.min(5, Math.max(1, Number(data.toastDurationSeconds) || 3)),
-              totalCount: links.length // 浼犻€掑綋鍓嶆€绘潯鏁?
+              totalCount: links.length // 传递当前总条数
             };
             await sendNotificationToTab(tabId, tabUrl, notificationPayload);
             resolve();
@@ -817,10 +817,10 @@ function saveLinkItem(item, tabId, groupName = "\u5168\u5c40\uff08\u65e0\u5206\u
   });
 }
 
-// 鐩戝惉鏉ヨ嚜 content script 鐨勬秷鎭紙渚嬪閫氱煡鎾斁瀹屾瘯鍚庡叧闂爣绛撅級
+// 监听来自 content script 的消息，例如通知播放完毕后关闭标签
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.action === 'closeTab' && sender.tab) {
-    console.log("馃殌 鏀跺埌鍏抽棴鏍囩璇锋眰:", sender.tab.id);
+    console.log("🚀 收到关闭标签请求:", sender.tab.id);
     chrome.tabs.remove(sender.tab.id);
   }
 });

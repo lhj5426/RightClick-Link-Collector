@@ -173,6 +173,12 @@ document.addEventListener("DOMContentLoaded", () => {
 
   function setFavoriteSidebarOpen(open) {
     if (!favoriteSidebar) return;
+    if (!open && favoriteSidebar.contains(document.activeElement)) {
+      favoriteSidebarToggle?.focus();
+      if (favoriteSidebar.contains(document.activeElement)) {
+        document.activeElement?.blur?.();
+      }
+    }
     favoriteSidebar.classList.toggle('open', !!open);
     favoriteSidebar.setAttribute('aria-hidden', open ? 'false' : 'true');
     document.body.classList.toggle('favorite-sidebar-open', !!open);
@@ -848,9 +854,9 @@ document.addEventListener("DOMContentLoaded", () => {
   function getActiveGroupedView() {
     if (currentView === "unvisited") {
       const previousView = localStorage.getItem('previousView') || 'byDomain';
-      return ["byDomain", "byGroup", "byDate", "byNote"].includes(previousView) ? previousView : "byDomain";
+      return ["byDomain", "byGroup", "byDate", "byNote", "byFavorite"].includes(previousView) ? previousView : "byDomain";
     }
-    return ["byDomain", "byGroup", "byDate", "byNote"].includes(currentView) ? currentView : "";
+    return ["byDomain", "byGroup", "byDate", "byNote", "byFavorite"].includes(currentView) ? currentView : "";
   }
 
   function buildGroupCollapseStateKey(viewName, groupKey) {
@@ -1427,8 +1433,10 @@ document.addEventListener("DOMContentLoaded", () => {
       renderByDateView(visible, visited);
     } else if (currentView === "byNote") {
       renderByTagsView(visible, visited);
+    } else if (currentView === "byFavorite") {
+      renderByFavoriteView(visible, visited);
     } else if (currentView === "unvisited") {
-      renderUnvisitedView(visible, visited);
+      renderByVisitStateView(visible, visited);
     }
     
     applyCollapsedState();
@@ -1574,6 +1582,90 @@ document.addEventListener("DOMContentLoaded", () => {
   }
   
   // 渲染未访问视图
+  function renderByFavoriteView(links, visited) {
+    const collapseView = getActiveGroupedView() || "byFavorite";
+    const favoriteLinks = links.filter(link => isFavoriteLink(link.id)).sort(compareLinks);
+    const normalLinks = links.filter(link => !isFavoriteLink(link.id)).sort(compareLinks);
+
+    [
+      { key: "favorite", label: "❤ 已收藏", links: favoriteLinks },
+      { key: "normal", label: "♡ 未收藏", links: normalLinks }
+    ].forEach(group => {
+      const displayLinks = getDisplayModeLinks(group.links);
+      if (displayLinks.length === 0) return;
+
+      const section = document.createElement("div");
+      section.className = "group-section";
+
+      const header = document.createElement("div");
+      header.className = "group-header";
+      header.innerHTML = `
+        <div class="group-header-left">
+          <input type="checkbox" class="group-select-all" title="全选 / 取消全选">
+          <span>${group.label} (${displayLinks.length})</span>
+        </div>
+        <span class="group-toggle">▼</span>
+      `;
+
+      const content = document.createElement("div");
+      content.className = "group-content";
+      if (isThumbnailMode()) content.classList.add("thumb-grid-host");
+      bindGroupCollapseState(header, content, buildGroupCollapseStateKey(collapseView, `favorite:${group.key}`));
+
+      renderLinkCollection(content, group.links, visited);
+
+      section.appendChild(header);
+      section.appendChild(content);
+      linksList.appendChild(section);
+
+      setupGroupSelectAll(header, content);
+    });
+  }
+
+  function renderByVisitStateView(links, visited) {
+    const collapseView = "unvisited";
+    const unvisitedLinks = links.filter(link => !visited[link.url]).sort(compareLinks);
+    const visitedLinks = links.filter(link => visited[link.url]).sort(compareLinks);
+
+    [
+      { key: "unvisited", label: "未访问", links: unvisitedLinks },
+      { key: "visited", label: "已访问", links: visitedLinks }
+    ].forEach(group => {
+      const displayLinks = getDisplayModeLinks(group.links);
+      if (displayLinks.length === 0) return;
+
+      const section = document.createElement("div");
+      section.className = "group-section";
+
+      const header = document.createElement("div");
+      header.className = "group-header";
+      header.innerHTML = `
+        <div class="group-header-left">
+          <input type="checkbox" class="group-select-all" title="全选 / 取消全选">
+          <span>${group.label} (${displayLinks.length})</span>
+        </div>
+        <span class="group-toggle">▼</span>
+      `;
+
+      const content = document.createElement("div");
+      content.className = "group-content";
+      if (isThumbnailMode()) content.classList.add("thumb-grid-host");
+      bindGroupCollapseState(header, content, buildGroupCollapseStateKey(collapseView, group.key));
+
+      renderLinkCollection(content, group.links, visited);
+
+      section.appendChild(header);
+      section.appendChild(content);
+      linksList.appendChild(section);
+
+      setupGroupSelectAll(header, content);
+    });
+
+    if (unvisitedLinks.length === 0 && visitedLinks.length === 0) {
+      linksList.innerHTML = '<div class="empty-state"><p>没有链接</p></div>';
+    }
+  }
+
   function renderUnvisitedView(links, visited) {
     if (unvisitedMode === "aggregate") {
       // 聚合模式：所有未访问的链接归纳到一起
@@ -1609,6 +1701,8 @@ document.addEventListener("DOMContentLoaded", () => {
       renderByGroupView(unvisitedLinks, visited);
     } else if (previousView === 'byDate') {
       renderByDateView(unvisitedLinks, visited);
+    } else if (previousView === 'byFavorite') {
+      renderByFavoriteView(unvisitedLinks, visited);
     } else {
       // 默认按域名分组
       renderByDomainView(unvisitedLinks, visited);
@@ -5912,7 +6006,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
   // 初始加载：恢复视图tab的激活状态
   (function restoreActiveTab() {
-    const validViews = new Set(['all', 'byGroup', 'byDomain', 'byNote', 'unvisited', 'byDate']);
+    const validViews = new Set(['all', 'byGroup', 'byDomain', 'byNote', 'byFavorite', 'unvisited', 'byDate']);
     if (!validViews.has(currentView)) {
       currentView = 'all';
       localStorage.setItem('currentView', currentView);
