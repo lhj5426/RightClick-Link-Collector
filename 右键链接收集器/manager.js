@@ -1964,62 +1964,6 @@ document.addEventListener("DOMContentLoaded", () => {
     textInput.maxLength = 2048;
     
     // 收集所有已存在的标签以供快速选择
-    function batchTagSearchMatchesLocal(tagText) {
-      const keyword = batchSelectedTagKeyword.trim().toLowerCase();
-      if (!keyword) return true;
-      return String(tagText || '').trim().toLowerCase().includes(keyword);
-    }
-
-    function batchUpdateSearchMetaLocal() {
-      if (!batchSelectedTagSearchMeta) return;
-
-      const keyword = batchSelectedTagKeyword.trim();
-      if (!keyword) {
-        batchSelectedTagSearchMeta.textContent = `当前显示全部 ${selectedLinks.length} 个选中条目。`;
-        return;
-      }
-
-      let matchedLinks = 0;
-      let matchedTags = 0;
-      linkTagStates.forEach((linkState) => {
-        const count = linkState.tags.filter(tag => batchTagSearchMatchesLocal(tag.text)).length;
-        if (count > 0) {
-          matchedLinks += 1;
-          matchedTags += count;
-        }
-      });
-
-      batchSelectedTagSearchMeta.textContent = `搜索“${keyword}”后，显示 ${matchedLinks} 个条目，匹配到 ${matchedTags} 个已有标签。`;
-    }
-
-    function batchTagSearchMatchesDialog(tagText) {
-      const keyword = batchSelectedTagKeyword.trim().toLowerCase();
-      if (!keyword) return true;
-      return String(tagText || '').trim().toLowerCase().includes(keyword);
-    }
-
-    function batchUpdateSearchMetaDialog() {
-      if (!batchSelectedTagSearchMeta) return;
-
-      const keyword = batchSelectedTagKeyword.trim();
-      if (!keyword) {
-        batchSelectedTagSearchMeta.textContent = `当前显示全部 ${selectedLinks.length} 个选中条目。`;
-        return;
-      }
-
-      let matchedLinks = 0;
-      let matchedTags = 0;
-      linkTagStates.forEach((linkState) => {
-        const count = linkState.tags.filter(tag => batchTagSearchMatchesDialog(tag.text)).length;
-        if (count > 0) {
-          matchedLinks += 1;
-          matchedTags += count;
-        }
-      });
-
-      batchSelectedTagSearchMeta.textContent = `搜索“${keyword}”后，显示 ${matchedLinks} 个条目，匹配到 ${matchedTags} 个已有标签。`;
-    }
-
     const allExistingTags = [];
     const tagMap = new Map();
     allLinks.forEach(l => {
@@ -2052,7 +1996,7 @@ document.addEventListener("DOMContentLoaded", () => {
       }
 
       span.innerHTML = `
-        <span class="edit-tag-main">${escapeHtml(getBatchTagDisplayText(tag))}</span>
+        <span class="edit-tag-main">${escapeHtml(tag.text)}</span>
         ${editable ? `<span class="edit-tag-delete" data-index="${index}">✕</span>` : ''}
       `;
 
