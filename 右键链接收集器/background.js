@@ -210,7 +210,14 @@ function createContextMenus() {
   chrome.contextMenus.removeAll(() => {
     setTimeout(() => {
       chrome.storage.local.get({ groups: DEFAULT_GROUPS }, (res) => {
-        const groups = Array.isArray(res.groups) ? res.groups : DEFAULT_GROUPS;
+        const seenGroupIds = new Set();
+        const groups = (Array.isArray(res.groups) ? res.groups : DEFAULT_GROUPS)
+          .filter(group => {
+            const id = String(group?.id ?? '').trim();
+            const valid = !!group && typeof group === 'object' && id && id !== 'undefined' && id !== 'null' && !seenGroupIds.has(id);
+            if (valid) seenGroupIds.add(id);
+            return valid;
+          });
         
         console.log("创建右键菜单，当前分组数量:", groups.length);
         

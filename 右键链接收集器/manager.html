@@ -100,7 +100,13 @@
           </div>
         </div>
         <button id="saveTxtBtn" class="btn btn-secondary">📝 保存TXT</button>
-        <button id="exportDataBtn" class="btn btn-primary">📦 导出数据</button>
+        <div class="dropdown">
+          <button id="exportDataBtn" class="btn btn-primary">📦 导出数据 <span class="caret">▼</span></button>
+          <div class="dropdown-content">
+            <a href="#" id="exportAllJson">全部数据 JSON</a>
+            <a href="#" id="exportSelectedJson">选中条目 JSON</a>
+          </div>
+        </div>
         <button id="importDataBtn" class="btn btn-secondary">📥 导入数据</button>
         <input type="file" id="importFileInput" accept=".json" style="display: none;">
       </div>

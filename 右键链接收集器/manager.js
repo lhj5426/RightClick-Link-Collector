@@ -86,9 +86,10 @@ document.addEventListener("DOMContentLoaded", () => {
   const headerLeft = document.querySelector(".header-left");
   const toolbarActions = document.querySelector(".toolbar-actions");
   const saveHtmlDropdown = saveHtmlBtn ? saveHtmlBtn.closest(".dropdown") : null;
+  const exportDataDropdownWrap = headerExportDataBtn ? headerExportDataBtn.closest(".dropdown") : null;
   let exportFilePrefix = '';
 
-  if (headerLeft && copyAllBtn && clearAllBtn && saveHtmlDropdown && saveTxtBtn && headerExportDataBtn && headerImportDataBtn) {
+  if (headerLeft && copyAllBtn && clearAllBtn && saveHtmlDropdown && saveTxtBtn && exportDataDropdownWrap && headerImportDataBtn) {
     let titleGroup = headerLeft.querySelector(".header-title-group");
     if (!titleGroup) {
       titleGroup = document.createElement("div");
@@ -108,7 +109,7 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
     buttonGrid.appendChild(copyAllBtn);
-    buttonGrid.appendChild(headerExportDataBtn);
+    buttonGrid.appendChild(exportDataDropdownWrap);
     buttonGrid.appendChild(headerImportDataBtn);
     buttonGrid.appendChild(clearAllBtn);
     buttonGrid.appendChild(saveHtmlDropdown);
@@ -157,6 +158,62 @@ document.addEventListener("DOMContentLoaded", () => {
 
   function normalizeFavoriteSearchTag(value) {
     return String(value || '').replace(/\s+/g, ' ').trim();
+  }
+
+  function normalizeGroupId(id) {
+    const text = String(id ?? '').trim();
+    return text && text !== 'undefined' && text !== 'null' ? text : '';
+  }
+
+  function ensureValidGroups(groups, links = allLinks) {
+    const usedIds = new Set();
+    const groupByName = new Map();
+    const idMap = {};
+    let nextId = Math.max(0, ...groups.map(group => Number(group?.id) || 0)) + 1;
+
+    const normalizedGroups = [];
+
+    (Array.isArray(groups) ? groups : [])
+      .filter(group => group && typeof group === 'object')
+      .forEach((group) => {
+        const originalId = group.id;
+        let groupId = normalizeGroupId(group.id);
+        if (!groupId || usedIds.has(groupId)) {
+          groupId = String(nextId++);
+        }
+
+        const groupName = String(group.name || '未命名分组').trim() || '未命名分组';
+        const nameKey = groupName.toLowerCase();
+        const existingGroup = groupByName.get(nameKey);
+        if (existingGroup) {
+          idMap[String(originalId)] = existingGroup.id;
+          idMap[groupId] = existingGroup.id;
+          return;
+        }
+
+        usedIds.add(groupId);
+        if (String(originalId ?? '') !== groupId) {
+          idMap[String(originalId)] = groupId;
+        }
+        const normalizedGroup = {
+          ...group,
+          id: groupId,
+          name: groupName,
+          color: group.color || '#2196F3',
+          textColor: group.textColor || '#FFFFFF'
+        };
+        normalizedGroups.push(normalizedGroup);
+        groupByName.set(nameKey, normalizedGroup);
+      });
+
+    if (links && Object.keys(idMap).length > 0) {
+      links.forEach(link => {
+        const mappedId = idMap[String(link.groupId)];
+        if (mappedId) link.groupId = mappedId;
+      });
+    }
+
+    return normalizedGroups;
   }
 
   function isFavoriteLink(linkId) {
@@ -785,8 +842,9 @@ document.addEventListener("DOMContentLoaded", () => {
         chrome.storage.local.set({ links: allLinks });
       }
       
-      allGroups = Array.isArray(res.groups) ? res.groups : DEFAULT_GROUPS;
-      let groupsNeedSave = false;
+      const rawGroups = Array.isArray(res.groups) ? res.groups : DEFAULT_GROUPS;
+      allGroups = ensureValidGroups(rawGroups, allLinks);
+      let groupsNeedSave = JSON.stringify(rawGroups) !== JSON.stringify(allGroups);
       allGroups = allGroups.map(group => {
         if (!group || typeof group !== "object") return group;
         if (typeof group.autoCloseTab === "boolean") return group;
@@ -3279,15 +3337,27 @@ document.addEventListener("DOMContentLoaded", () => {
   
   // 清空全部
   clearAllBtn.addEventListener("click", async () => {
-    if (!confirm(`确定要删除所有 ${allLinks.length} 个链接吗？`)) return;
+    const snapshotCount = allLinks.filter(link => link.hasSnapshot).length;
+    const linksText = snapshotCount > 0
+      ? `${allLinks.length} 个链接（含 ${snapshotCount} 张快照）`
+      : `${allLinks.length} 个链接`;
+    if (!confirm(`确定要清空所有数据吗？\n\n将删除：\n${linksText}\n${favoriteLinkIds.length} 个收藏夹条目\n${favoriteSearchTags.length} 个快捷标签`)) return;
     
     // 清空所有快照
     await DB.clearAllSnapshots();
     
-    chrome.storage.local.set({ links: [] }, () => {
+    favoriteLinkIds = [];
+    favoriteSearchTags = [];
+
+    chrome.storage.local.set({
+      links: [],
+      [FAVORITE_LINK_IDS_STORAGE_KEY]: favoriteLinkIds,
+      [FAVORITE_SEARCH_TAGS_STORAGE_KEY]: favoriteSearchTags
+    }, () => {
       allLinks = [];
       selectedLinkIds.clear();
       renderLinks();
+      renderFavoriteSidebar();
       updateCount();
       updateBadge();
     });
@@ -3366,6 +3436,9 @@ document.addEventListener("DOMContentLoaded", () => {
   window.addEventListener("click", (e) => {
     if (htmlDropdown && htmlDropdown.classList.contains("show") && !e.target.closest(".dropdown")) {
       htmlDropdown.classList.remove("show");
+    }
+    if (exportDataDropdown && exportDataDropdown.classList.contains("show") && !e.target.closest(".dropdown")) {
+      exportDataDropdown.classList.remove("show");
     }
     if (groupJumpDropdown && groupJumpDropdown.classList.contains("show") && !e.target.closest(".group-jump-dropdown")) {
       groupJumpDropdown.classList.remove("show");
@@ -3579,11 +3652,18 @@ document.addEventListener("DOMContentLoaded", () => {
   }
   
   // 导出数据为JSON（用于扩展间同步）
-  async function exportData() {
+  async function exportData(options = { selected: false }) {
+    const linksToExport = options.selected ? getSelectedLinks() : allLinks;
+    if (options.selected && linksToExport.length === 0) {
+      alert("请先选择要导出的链接");
+      return;
+    }
+
+    const exportLinkIds = new Set(linksToExport.map(link => String(link.id)));
     const snapshots = {};
     
-    // 异步获取所有快照
-    for (const link of allLinks) {
+    // 异步获取快照
+    for (const link of linksToExport) {
       if (link.hasSnapshot) {
         try {
           const imgData = await DB.getSnapshot(link.id);
@@ -3599,9 +3679,10 @@ document.addEventListener("DOMContentLoaded", () => {
     const data = {
       version: '1.1',
       timestamp: new Date().toISOString(),
-      links: allLinks,
+      exportScope: options.selected ? 'selected' : 'all',
+      links: linksToExport,
       groups: allGroups,
-      favoriteLinkIds,
+      favoriteLinkIds: favoriteLinkIds.filter(id => exportLinkIds.has(String(id))),
       favoriteSearchTags,
       snapshots: snapshots
     };
@@ -3614,115 +3695,328 @@ document.addEventListener("DOMContentLoaded", () => {
     const minutes = String(now.getMinutes()).padStart(2, '0');
     const seconds = String(now.getSeconds()).padStart(2, '0');
     
-    const filename = `链接收集器数据(${allLinks.length}个链接)_${year}-${month}-${day}_${hours}${minutes}${seconds}.json`;
+    const scopeText = options.selected ? "选中条目" : "全部数据";
+    const filename = `链接收集器数据(${scopeText}-${linksToExport.length}个链接)_${year}-${month}-${day}_${hours}${minutes}${seconds}.json`;
     downloadBlob(JSON.stringify(data, null, 2), filename, 'application/json');
   }
   
+  function getUrlKey(url) {
+    return String(url || '').trim();
+  }
+
+  function getLinkByIdMap(links) {
+    const map = new Map();
+    links.forEach(link => map.set(String(link.id), link));
+    return map;
+  }
+
+  function getLinkByUrlMap(links) {
+    const map = new Map();
+    links.forEach(link => {
+      const urlKey = getUrlKey(link.url);
+      if (urlKey && !map.has(urlKey)) map.set(urlKey, link);
+    });
+    return map;
+  }
+
+  function requestImportOptions(data, counts) {
+    return new Promise((resolve) => {
+      const modal = document.createElement('div');
+      modal.className = 'modal show import-options-modal';
+      modal.innerHTML = `
+        <div class="modal-content import-options-content">
+          <div class="modal-header">
+            <h2>选择导入内容</h2>
+            <button class="modal-close" type="button" data-action="cancel">✕</button>
+          </div>
+          <div class="modal-body">
+            <div class="import-options-summary">
+              <div>${counts.linksText}</div>
+              <div>${counts.groups} 个分组</div>
+              <div>${counts.favorites} 个收藏夹条目</div>
+              <div>${counts.tags} 个快捷标签</div>
+            </div>
+            <div class="import-options-list">
+              <label><input type="checkbox" data-import-option="links" ${counts.links > 0 ? 'checked' : ''}> 链接（含快照）</label>
+              <label><input type="checkbox" data-import-option="favorites" ${counts.favorites > 0 ? 'checked' : ''}> 收藏夹</label>
+              <label><input type="checkbox" data-import-option="tags" ${counts.tags > 0 ? 'checked' : ''}> 标签</label>
+              <label><input type="checkbox" data-import-option="groups" ${counts.groups > 0 ? 'checked' : ''}> 分组</label>
+            </div>
+            <div class="import-mode-options">
+              <label><input type="radio" name="importMode" value="merge" checked> 合并</label>
+              <label><input type="radio" name="importMode" value="overwrite"> 覆盖</label>
+            </div>
+            <div class="import-options-actions">
+              <button class="btn btn-primary" type="button" data-action="confirm">开始导入</button>
+              <button class="btn btn-secondary" type="button" data-action="cancel">取消</button>
+            </div>
+          </div>
+        </div>
+      `;
+
+      const close = (value) => {
+        modal.remove();
+        resolve(value);
+      };
+
+      modal.addEventListener('click', (e) => {
+        if (e.target === modal || e.target.closest('[data-action="cancel"]')) {
+          close(null);
+          return;
+        }
+        if (!e.target.closest('[data-action="confirm"]')) return;
+
+        const options = {
+          links: modal.querySelector('[data-import-option="links"]')?.checked || false,
+          favorites: modal.querySelector('[data-import-option="favorites"]')?.checked || false,
+          tags: modal.querySelector('[data-import-option="tags"]')?.checked || false,
+          groups: modal.querySelector('[data-import-option="groups"]')?.checked || false,
+          mode: modal.querySelector('input[name="importMode"]:checked')?.value || 'merge'
+        };
+        if (!options.links && !options.favorites && !options.tags && !options.groups) {
+          alert('请至少选择一项要导入的内容');
+          return;
+        }
+        close(options);
+      });
+
+      document.body.appendChild(modal);
+    });
+  }
+
+  function showLargeMessage(title, message) {
+    const contentHtml = Array.isArray(message)
+      ? `<div class="large-message-grid">${message.map((section) => `
+          <section class="large-message-section">
+            <h3>${escapeHtml(section.title)}</h3>
+            <div>${section.lines.map(line => `<p>${escapeHtml(line)}</p>`).join('')}</div>
+          </section>
+        `).join('')}</div>`
+      : `<pre class="large-message-text">${escapeHtml(message)}</pre>`;
+    const modal = document.createElement('div');
+    modal.className = 'modal show large-message-modal';
+    modal.innerHTML = `
+      <div class="modal-content large-message-content">
+        <div class="modal-header">
+          <h2>${escapeHtml(title)}</h2>
+          <button class="modal-close" type="button" data-action="close">✕</button>
+        </div>
+        <div class="modal-body">
+          ${contentHtml}
+          <div class="large-message-actions">
+            <button class="btn btn-primary" type="button" data-action="close">确定</button>
+          </div>
+        </div>
+      </div>
+    `;
+
+    modal.addEventListener('click', (e) => {
+      if (e.target === modal || e.target.closest('[data-action="close"]')) {
+        modal.remove();
+      }
+    });
+
+    document.body.appendChild(modal);
+  }
+
   // 导入数据从JSON
   function importData(file) {
     const reader = new FileReader();
     reader.onload = async (e) => {
       try {
         const data = JSON.parse(e.target.result);
-        
-        // 验证数据格式
         if (!data.links || !Array.isArray(data.links)) {
           alert('无效的数据格式');
           return;
         }
-        
-        const importLinksCount = (data.links || []).length;
-        const importGroupsCount = (data.groups || []).length;
-        const hasSnapshots = !!(data.snapshots && Object.keys(data.snapshots).length > 0);
-        
-        // 询问是否覆盖或合并，并显示要导入的数量
-        const choice = confirm(`准备导入 ${importLinksCount} 个链接和 ${importGroupsCount} 个分组${hasSnapshots ? '（包含快照）' : ''}\n\n是否覆盖现有数据？\n点击"确定"覆盖，点击"取消"合并`);
-        
-        let snapshotsToSave = []; // [{id, data}]
 
-        if (choice) {
-          // 覆盖模式
-          allLinks = data.links || [];
-          allGroups = data.groups || [];
-          favoriteLinkIds = Array.isArray(data.favoriteLinkIds) ? data.favoriteLinkIds.map(normalizeFavoriteId) : [];
-          favoriteSearchTags = Array.isArray(data.favoriteSearchTags)
-            ? data.favoriteSearchTags.map(normalizeFavoriteSearchTag).filter(Boolean)
-            : [];
-          
-          // 准备覆盖快照
-          if (hasSnapshots) {
-            await DB.clearAllSnapshots();
-            for (const id in data.snapshots) {
-              snapshotsToSave.push({ id, data: data.snapshots[id] });
-            }
+        const sourceLinks = (data.links || []).map(link => ({ ...link }));
+        const sourceLinkById = getLinkByIdMap(sourceLinks);
+        const importLinksCount = sourceLinks.length;
+        const importGroupsCount = Array.isArray(data.groups) ? data.groups.length : 0;
+        const importFavoriteLinksCount = Array.isArray(data.favoriteLinkIds) ? data.favoriteLinkIds.length : 0;
+        const importFavoriteTagsCount = Array.isArray(data.favoriteSearchTags) ? data.favoriteSearchTags.length : 0;
+        const importLinksText = `${importLinksCount} 个链接（含快照）`;
+
+        const importOptions = await requestImportOptions(data, {
+          links: importLinksCount,
+          linksText: importLinksText,
+          groups: importGroupsCount,
+          favorites: importFavoriteLinksCount,
+          tags: importFavoriteTagsCount
+        });
+        if (!importOptions) return;
+
+        const overwrite = importOptions.mode === 'overwrite';
+        const originalLinksCount = allLinks.length;
+        const snapshotsToSave = [];
+        const snapshotIdsToDelete = [];
+        const oldToFinalLinkIdMap = {};
+        const snapshotTargetLinkIdMap = {};
+        const oldGroupIdMap = {};
+        let importedNewLinksCount = 0;
+        let duplicateImportLinksCount = 0;
+        let importedGroupsAddedCount = 0;
+        let importedGroupsReusedCount = 0;
+        let duplicateLinksRemovedCount = 0;
+
+        if (importOptions.groups) {
+          const groupsForImport = Array.isArray(data.groups) ? data.groups : [];
+          if (overwrite) {
+            allGroups = ensureValidGroups(groupsForImport, importOptions.links ? sourceLinks : allLinks);
+            importedGroupsAddedCount = allGroups.length;
+          } else {
+            const existingGroupByName = new Map();
+            allGroups.forEach(group => {
+              const nameKey = String(group.name || '').trim().toLowerCase();
+              if (nameKey && !existingGroupByName.has(nameKey)) existingGroupByName.set(nameKey, group);
+            });
+            let nextGroupId = Math.max(0, ...allGroups.map(g => Number(g.id) || 0)) + 1;
+            groupsForImport.forEach(group => {
+              const nameKey = String(group.name || '').trim().toLowerCase();
+              const existingGroup = nameKey ? existingGroupByName.get(nameKey) : null;
+              if (existingGroup) {
+                oldGroupIdMap[group.id] = existingGroup.id;
+                importedGroupsReusedCount += 1;
+                return;
+              }
+              const newGroup = {
+                ...group,
+                id: String(nextGroupId++),
+                name: String(group.name || '未命名分组').trim() || '未命名分组',
+                color: group.color || '#2196F3',
+                textColor: group.textColor || '#FFFFFF'
+              };
+              allGroups.push(newGroup);
+              if (nameKey) existingGroupByName.set(nameKey, newGroup);
+              oldGroupIdMap[group.id] = newGroup.id;
+              importedGroupsAddedCount += 1;
+            });
           }
         } else {
-          // 合并模式 - 避免ID冲突
-          const maxLinkId = Math.max(...allLinks.map(l => l.id || 0), 0);
-          const maxGroupId = Math.max(...allGroups.map(g => g.id || 0), 0);
-          
-          const oldToNewLinkIdMap = {};
+          const existingGroupByName = new Map();
+          allGroups.forEach(group => {
+            const nameKey = String(group.name || '').trim().toLowerCase();
+            if (nameKey && !existingGroupByName.has(nameKey)) existingGroupByName.set(nameKey, group);
+          });
+          (data.groups || []).forEach(group => {
+            const nameKey = String(group.name || '').trim().toLowerCase();
+            const existingGroup = nameKey ? existingGroupByName.get(nameKey) : null;
+            if (existingGroup) oldGroupIdMap[group.id] = existingGroup.id;
+          });
+        }
 
-          // 重新分配ID
-          const importedLinks = (data.links || []).map((link, idx) => {
-            const oldId = link.id;
-            const newId = maxLinkId + idx + 1;
-            oldToNewLinkIdMap[oldId] = newId;
-            return {
-              ...link,
-              id: newId
-            };
-          });
-          
-          const importedGroups = (data.groups || []).map((group, idx) => ({
-            ...group,
-            id: maxGroupId + idx + 1
-          }));
-          
-          // 更新导入的链接中的groupId引用
-          const oldGroupIdMap = {};
-          (data.groups || []).forEach((oldGroup, idx) => {
-            oldGroupIdMap[oldGroup.id] = importedGroups[idx].id;
-          });
-          
-          importedLinks.forEach(link => {
-            if (link.groupId && oldGroupIdMap[link.groupId]) {
-              link.groupId = oldGroupIdMap[link.groupId];
-            }
-          });
-          
-          // 准备合并快照
-          if (hasSnapshots) {
-            for (const oldId in data.snapshots) {
-              const newId = oldToNewLinkIdMap[oldId];
-              if (newId) {
-                snapshotsToSave.push({ id: newId, data: data.snapshots[oldId] });
+        if (importOptions.links) {
+          if (overwrite) {
+            allLinks = sourceLinks.map(link => {
+              const nextLink = { ...link };
+              if (nextLink.groupId) nextLink.groupId = oldGroupIdMap[nextLink.groupId] ?? nextLink.groupId;
+              if (!importOptions.groups && nextLink.groupId && !allGroups.some(group => group.id === nextLink.groupId)) {
+                nextLink.groupId = null;
               }
+              oldToFinalLinkIdMap[link.id] = nextLink.id;
+              snapshotTargetLinkIdMap[link.id] = nextLink.id;
+              return nextLink;
+            });
+            await DB.clearAllSnapshots();
+            importedNewLinksCount = allLinks.length;
+          } else {
+            let nextLinkId = Math.max(0, ...allLinks.map(l => Number(l.id) || 0)) + 1;
+            const existingLinkByUrl = getLinkByUrlMap(allLinks);
+            sourceLinks.forEach(link => {
+              const urlKey = getUrlKey(link.url);
+              const existingLink = urlKey ? existingLinkByUrl.get(urlKey) : null;
+              const mergedLink = { ...link };
+              if (mergedLink.groupId) mergedLink.groupId = oldGroupIdMap[mergedLink.groupId] ?? mergedLink.groupId;
+              if (!importOptions.groups && mergedLink.groupId && !allGroups.some(group => group.id === mergedLink.groupId)) {
+                mergedLink.groupId = null;
+              }
+
+              if (existingLink) {
+                oldToFinalLinkIdMap[link.id] = existingLink.id;
+                duplicateImportLinksCount += 1;
+              } else {
+                const newLink = { ...mergedLink, id: nextLinkId++ };
+                oldToFinalLinkIdMap[link.id] = newLink.id;
+                snapshotTargetLinkIdMap[link.id] = newLink.id;
+                allLinks.push(newLink);
+                if (urlKey) existingLinkByUrl.set(urlKey, newLink);
+                importedNewLinksCount += 1;
+              }
+            });
+          }
+
+          if (data.snapshots) {
+            for (const oldId in data.snapshots) {
+              const newId = snapshotTargetLinkIdMap[oldId];
+              if (newId) snapshotsToSave.push({ id: newId, data: data.snapshots[oldId] });
             }
           }
 
+          if (!overwrite) {
+            const keptLinkByUrl = new Map();
+            const duplicateIdMap = {};
+            allLinks = allLinks.filter(link => {
+              const urlKey = getUrlKey(link.url);
+              if (!urlKey) return true;
+              const keptLink = keptLinkByUrl.get(urlKey);
+              if (!keptLink) {
+                keptLinkByUrl.set(urlKey, link);
+                return true;
+              }
+              duplicateIdMap[link.id] = keptLink.id;
+              duplicateIdMap[String(link.id)] = keptLink.id;
+              duplicateLinksRemovedCount += 1;
+              if (link.hasSnapshot) snapshotIdsToDelete.push(link.id);
+              return false;
+            });
+            Object.keys(oldToFinalLinkIdMap).forEach(oldId => {
+              const mapped = oldToFinalLinkIdMap[oldId];
+              if (duplicateIdMap[mapped] || duplicateIdMap[String(mapped)]) {
+                oldToFinalLinkIdMap[oldId] = duplicateIdMap[mapped] ?? duplicateIdMap[String(mapped)];
+              }
+            });
+          }
+        } else {
+          const existingLinkByUrl = getLinkByUrlMap(allLinks);
+          sourceLinks.forEach(link => {
+            const targetLink = existingLinkByUrl.get(getUrlKey(link.url));
+            if (targetLink) oldToFinalLinkIdMap[link.id] = targetLink.id;
+          });
+        }
+
+        if (importOptions.favorites) {
           const importedFavoriteIds = Array.isArray(data.favoriteLinkIds)
             ? data.favoriteLinkIds
-                .map(id => oldToNewLinkIdMap[id])
+                .map(id => oldToFinalLinkIdMap[id] ?? oldToFinalLinkIdMap[String(id)])
                 .filter(id => id !== undefined && id !== null)
             : [];
+          favoriteLinkIds = overwrite
+            ? importedFavoriteIds.map(normalizeFavoriteId)
+            : Array.from(new Set([...favoriteLinkIds, ...importedFavoriteIds].map(id => String(id)))).map(normalizeFavoriteId);
+        }
+
+        if (importOptions.tags) {
           const importedFavoriteTags = Array.isArray(data.favoriteSearchTags)
             ? data.favoriteSearchTags.map(normalizeFavoriteSearchTag).filter(Boolean)
             : [];
-
-          allLinks = [...allLinks, ...importedLinks];
-          allGroups = [...allGroups, ...importedGroups];
-          favoriteLinkIds = Array.from(new Set([...favoriteLinkIds, ...importedFavoriteIds].map(id => String(id)))).map(normalizeFavoriteId);
-          favoriteSearchTags = Array.from(new Set([...favoriteSearchTags, ...importedFavoriteTags]));
+          favoriteSearchTags = overwrite
+            ? Array.from(new Set(importedFavoriteTags))
+            : Array.from(new Set([...favoriteSearchTags, ...importedFavoriteTags]));
         }
-        
-        // 保存快照到 IndexedDB
+
+        allGroups = ensureValidGroups(allGroups, allLinks);
+        const validGroupIds = new Set(allGroups.map(group => group.id));
+        allLinks.forEach(link => {
+          if (link.groupId && !validGroupIds.has(link.groupId)) link.groupId = null;
+        });
+
+        if (snapshotIdsToDelete.length > 0) await DB.deleteSnapshots(snapshotIdsToDelete);
         for (const s of snapshotsToSave) {
           await DB.saveSnapshot(s.id, s.data);
         }
 
-        // 保存到存储
-        chrome.storage.local.set({ 
+        chrome.storage.local.set({
           links: allLinks,
           groups: allGroups,
           [FAVORITE_LINK_IDS_STORAGE_KEY]: favoriteLinkIds,
@@ -3733,8 +4027,48 @@ document.addEventListener("DOMContentLoaded", () => {
           updateCount();
           updateGroupCount();
           updateBadge();
-          updateContextMenus(); // 更新右键菜单
-          alert(`成功导入 ${importLinksCount} 个链接和 ${importGroupsCount} 个分组${snapshotsToSave.length > 0 ? `（及 ${snapshotsToSave.length} 张快照）` : ''}`);
+          updateContextMenus();
+          const formatLinksWithSnapshots = (prefix, linkCount) =>
+            `${prefix} ${linkCount} 个链接（含快照）`;
+          const savedLinksText = `${importLinksCount} 个链接（含快照）`;
+          const modeText = overwrite ? '覆盖结果' : '合并结果';
+          const totalLines = [
+            formatLinksWithSnapshots('原有', originalLinksCount),
+            formatLinksWithSnapshots(overwrite ? '导入' : '新增', importedNewLinksCount),
+            formatLinksWithSnapshots('合计', allLinks.length),
+            `${allGroups.length} 个分组`,
+            `${favoriteLinkIds.length} 个收藏夹条目`,
+            `${favoriteSearchTags.length} 个快捷标签`
+          ];
+          const resultLines = [
+            importOptions.links ? formatLinksWithSnapshots('新增', importedNewLinksCount) : '',
+            importOptions.links && duplicateImportLinksCount > 0
+              ? formatLinksWithSnapshots('重复并跳过', duplicateImportLinksCount)
+              : '',
+            importOptions.links && duplicateLinksRemovedCount > 0 ? `清理 ${duplicateLinksRemovedCount} 个列表重复链接` : '',
+            importOptions.groups ? `新增 ${importedGroupsAddedCount} 个分组，复用 ${importedGroupsReusedCount} 个分组` : '',
+            importOptions.favorites ? `${overwrite ? '覆盖' : '合并'} ${importFavoriteLinksCount} 个收藏夹条目` : '',
+            importOptions.tags ? `${overwrite ? '覆盖' : '合并'} ${importFavoriteTagsCount} 个快捷标签` : ''
+          ].filter((line) => line !== '');
+          showLargeMessage('成功导入', [
+            {
+              title: '选择的 JSON 内包含',
+              lines: [
+                savedLinksText,
+                `${importGroupsCount} 个分组`,
+                `${importFavoriteLinksCount} 个收藏夹条目`,
+                `${importFavoriteTagsCount} 个快捷标签`
+              ]
+            },
+            {
+              title: modeText,
+              lines: resultLines.length > 0 ? resultLines : ['没有导入选中的数据类型']
+            },
+            {
+              title: '当前总计',
+              lines: totalLines
+            }
+          ]);
         });
       } catch (err) {
         console.error('导入失败详情:', err);
@@ -3748,10 +4082,28 @@ document.addEventListener("DOMContentLoaded", () => {
   const exportDataBtn = document.getElementById('exportDataBtn');
   const importDataBtn = document.getElementById('importDataBtn');
   const importFileInput = document.getElementById('importFileInput');
+  const exportDataDropdown = exportDataBtn?.closest('.dropdown')?.querySelector('.dropdown-content');
   
   if (exportDataBtn) {
-    exportDataBtn.addEventListener('click', exportData);
+    exportDataBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      if (groupJumpDropdown) groupJumpDropdown.classList.remove("show");
+      if (htmlDropdown) htmlDropdown.classList.remove("show");
+      exportDataDropdown?.classList.toggle('show');
+    });
   }
+
+  document.getElementById('exportAllJson')?.addEventListener('click', (e) => {
+    e.preventDefault();
+    exportData({ selected: false });
+    exportDataDropdown?.classList.remove('show');
+  });
+
+  document.getElementById('exportSelectedJson')?.addEventListener('click', (e) => {
+    e.preventDefault();
+    exportData({ selected: true });
+    exportDataDropdown?.classList.remove('show');
+  });
   
   if (importDataBtn) {
     importDataBtn.addEventListener('click', () => {

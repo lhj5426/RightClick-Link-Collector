@@ -450,6 +450,10 @@ body.favorite-sidebar-open .container {
   z-index: 5;
 }
 
+.header-button-grid .dropdown:has(.dropdown-content.show) {
+  z-index: 2100;
+}
+
 .header-button-grid .dropdown-content {
   z-index: 2000;
 }
@@ -1847,6 +1851,106 @@ body.dark .download-option:hover {
   padding: 20px 30px;
   overflow-y: auto;
   flex: 1;
+}
+
+.import-options-content {
+  max-width: 520px;
+}
+
+.import-options-summary {
+  display: grid;
+  gap: 6px;
+  padding: 12px;
+  margin-bottom: 16px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg);
+  font-size: 14px;
+}
+
+.import-options-list,
+.import-mode-options {
+  display: grid;
+  gap: 10px;
+  margin-bottom: 18px;
+}
+
+.import-options-list label,
+.import-mode-options label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.import-options-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+.large-message-content {
+  width: min(980px, 94vw);
+  max-width: 980px;
+  max-height: 88vh;
+}
+
+.large-message-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.large-message-section {
+  min-width: 0;
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg);
+}
+
+.large-message-section h3 {
+  margin: 0 0 10px;
+  font-size: 15px;
+  color: var(--text);
+}
+
+.large-message-section p {
+  margin: 0 0 7px;
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--text);
+}
+
+.large-message-section p:last-child {
+  margin-bottom: 0;
+}
+
+.large-message-text {
+  margin: 0;
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg);
+  color: var(--text);
+  font: 14px/1.7 Consolas, 'Microsoft YaHei', monospace;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-height: 58vh;
+  overflow-y: auto;
+}
+
+.large-message-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 16px;
+}
+
+@media (max-width: 760px) {
+  .large-message-grid {
+    grid-template-columns: 1fr;
+  }
 }
 
 .group-list {
