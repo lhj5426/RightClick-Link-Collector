@@ -4408,6 +4408,9 @@ document.addEventListener("DOMContentLoaded", () => {
         .group-header { font-size: 1.1em; font-weight: 500; color: #666; padding: 10px; background: #f5f5f5; border-radius: 4px; cursor: pointer; display: flex; justify-content: space-between; align-items: center; }
         .group-header:hover { background: #eeeeee; }
         .group-header-title { display: flex; align-items: center; gap: 8px; }
+        .group-marker-stats { font-size: 0.85em; color: #555; margin-left: 4px; }
+        .group-marker-stats .dl-count { color: #4CAF50; font-weight: 600; }
+        .group-marker-stats .sk-count { color: #F44336; font-weight: 600; }
         .toggle-icon { transition: transform 0.2s; }
         .collapsed .toggle-icon { transform: rotate(-90deg); }
         .group-content { margin-top: 10px; }
@@ -4420,6 +4423,10 @@ document.addEventListener("DOMContentLoaded", () => {
         .marker-checkbox input { cursor: pointer; }
         .marker-downloaded { color: #4CAF50; font-weight: 500; }
         .marker-skipped { color: #F44336; font-weight: 500; }
+        .tab-entry.marker-downloaded-active { background: #e8f5e9; border-color: #a5d6a7; }
+        .tab-entry.marker-downloaded-active:hover { background: #c8e6c9; }
+        .tab-entry.marker-skipped-active { background: #ffebee; border-color: #ef9a9a; }
+        .tab-entry.marker-skipped-active:hover { background: #ffcdd2; }
         .visit-info.visited-count-1 { color: #E53935 !important; } 
         .visit-info.visited-count-2 { color: #FB8C00 !important; }
         .visit-info.visited-count-3 { color: #FDD835 !important; } 
@@ -4662,15 +4669,49 @@ document.addEventListener("DOMContentLoaded", () => {
             const skCb = entry.querySelector('.marker-skipped-cb');
             if (dlCb) dlCb.checked = !!markers[markerKey].downloaded;
             if (skCb) skCb.checked = !!markers[markerKey].skipped;
+            entry.classList.toggle('marker-downloaded-active', !!markers[markerKey].downloaded);
+            entry.classList.toggle('marker-skipped-active', !!markers[markerKey].skipped);
           });
+          updateGroupMarkerStats();
         };
 
         window.clearMarkers = () => {
           if (confirm('确定要清除所有下载标记吗？')) {
             localStorage.removeItem(MARKERS_STORAGE_KEY);
             document.querySelectorAll('.marker-downloaded-cb, .marker-skipped-cb').forEach(c => c.checked = false);
+            document.querySelectorAll('.tab-entry').forEach(e => {
+              e.classList.remove('marker-downloaded-active', 'marker-skipped-active');
+            });
+            updateGroupMarkerStats();
           }
         };
+
+        function updateGroupMarkerStats() {
+          document.querySelectorAll('.tab-group').forEach(group => {
+            const header = group.querySelector('.group-header');
+            if (!header) return;
+            const entries = group.querySelectorAll('.tab-entry');
+            const downloadedIds = new Set();
+            const skippedIds = new Set();
+            entries.forEach(entry => {
+              const id = entry.dataset.id;
+              if (!id) return;
+              if (entry.classList.contains('marker-downloaded-active')) downloadedIds.add(id);
+              if (entry.classList.contains('marker-skipped-active')) skippedIds.add(id);
+            });
+            const titleSpan = header.querySelector('.group-header-title');
+            if (!titleSpan) return;
+            let stats = titleSpan.querySelector('.group-marker-stats');
+            if (!stats) {
+              stats = document.createElement('span');
+              stats.className = 'group-marker-stats';
+              titleSpan.appendChild(stats);
+            }
+            const dl = String(downloadedIds.size).padStart(2, '0');
+            const sk = String(skippedIds.size).padStart(2, '0');
+            stats.innerHTML = ' 勾选 已下载「<span class="dl-count">' + dl + '</span>」未下载「<span class="sk-count">' + sk + '</span>」';
+          });
+        }
 
         window.clearVisitHistory = () => {
           if (confirm('确定要清除访问历史吗？')) {
@@ -5474,8 +5515,11 @@ document.addEventListener("DOMContentLoaded", () => {
             if (markerKey && markers[markerKey]) {
               if (markers[markerKey].downloaded) e.querySelector('.marker-downloaded-cb').checked = true;
               if (markers[markerKey].skipped) e.querySelector('.marker-skipped-cb').checked = true;
+              e.classList.toggle('marker-downloaded-active', !!markers[markerKey].downloaded);
+              e.classList.toggle('marker-skipped-active', !!markers[markerKey].skipped);
             }
           });
+          updateGroupMarkerStats();
         }
 
         document.querySelectorAll('.view-button').forEach(btn => {
