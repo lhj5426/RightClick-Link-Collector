@@ -4212,6 +4212,58 @@ document.addEventListener("DOMContentLoaded", () => {
         </div>`;
     }
 
+    function generateThumbnailEntry(link, index) {
+      const snapshotData = includeSnapshots ? snapshots[link.id] : '';
+      const pageCountText = getPageCountText(link);
+      const pageCountDisplay = pageCountText ? `<span class="thumb-page-count">页数: ${escapeHtml(pageCountText)}</span>` : '';
+      const saveTime = link.date ? `<span class="thumb-save-time">${escapeHtml(link.date)}</span>` : '';
+      const sourceText = escapeHtml(link.title || link.page || '未知');
+      let markerHTML = '';
+      if (snapshotData && link.clickPoint) {
+        const { x, y, viewportW, viewportH } = link.clickPoint;
+        if (viewportW && viewportH) {
+          const left = (x / viewportW) * 100;
+          const top = (y / viewportH) * 100;
+          markerHTML = `<div class="snapshot-marker" style="left: ${left}%; top: ${top}%;"></div>`;
+        }
+      }
+
+      const snapshotHTML = snapshotData
+        ? `<div class="tab-snapshot export-thumb-snapshot has-image" data-id="${link.id}" data-hydrated="1" onclick="window.showPreview(this)"><img src="${snapshotData}" alt="快照缩略图">${markerHTML}</div>`
+        : `<div class="export-thumb-snapshot export-thumb-empty"><span>无快照</span></div>`;
+
+      const tagsDisplay = link.tags && link.tags.length > 0
+        ? `<div class="export-thumb-tags">${link.tags.map(t => `<span style="background:${t.color}; color:${t.textColor || '#ffffff'};">${escapeHtml(t.text)}</span>`).join('')}</div>`
+        : '';
+
+      return `
+        <div class="tab-entry export-thumb-entry" data-id="${link.id}" data-url="${escapeHtml(link.url)}" data-title="${escapeHtml(link.title || link.page || '')}" data-group-id="${link.groupId || ''}" data-page-count="${getPageCountValue(link)}" data-tags="${escapeHtml(link.tags ? link.tags.map(t=>t.text).join(' ') : '')}">
+          <input type="checkbox" class="tab-checkbox export-thumb-checkbox" onclick="window.updateSelectionState()">
+          <span class="export-thumb-index">#${index}</span>
+          ${snapshotHTML}
+          <div class="export-thumb-detail">
+            <a href="${escapeHtml(link.url)}" class="tab-title export-thumb-url" target="_blank" onmousedown="window.handleLinkClick(event)">${escapeHtml(link.url)}</a>
+            <div class="tab-url-container">
+              <span class="tab-url-toggle" onclick="window.toggleUrl(this)">▶ 显示来源</span>
+              <div class="tab-url collapsed">来源: ${sourceText}</div>
+            </div>
+            <div class="export-thumb-meta">${saveTime}${pageCountDisplay}</div>
+            ${tagsDisplay}
+            <div class="visit-info"><span class="visit-time"></span><span class="visit-count"></span></div>
+            <div class="tab-markers">
+              <label class="marker-checkbox marker-downloaded">
+                <input type="checkbox" class="marker-downloaded-cb" onchange="window.saveMarker(this, 'downloaded')">
+                <span>✓ 已下载</span>
+              </label>
+              <label class="marker-checkbox marker-skipped">
+                <input type="checkbox" class="marker-skipped-cb" onchange="window.saveMarker(this, 'skipped')">
+                <span>✗ 未下载</span>
+              </label>
+            </div>
+          </div>
+        </div>`;
+    }
+
     // 按字母排序
     const linksByTitle = [...links].sort((a, b) => (a.title || a.page || a.url || '').localeCompare(b.title || b.page || b.url || ''));
     // 按URL排序
@@ -4238,13 +4290,12 @@ document.addEventListener("DOMContentLoaded", () => {
             </span>
             <span class="toggle-icon">▾</span>
           </div>
-          <div class="group-content">${sortedGlobalLinks.map((link, i) => generateTabEntry(link, i + 1)).join('')}</div>
+          <div class="group-content"><div class="list-content">${sortedGlobalLinks.map((link, i) => generateTabEntry(link, i + 1)).join('')}</div><div class="thumb-content"><div class="export-thumb-grid">${sortedGlobalLinks.map((link, i) => generateThumbnailEntry(link, i + 1)).join('')}</div></div></div>
         </div>`;
     }
     groups.forEach(group => {
       const groupLinks = links.filter(link => link.groupId === group.id);
       if (groupLinks.length > 0) {
-        // 组内按保存时间排序（新→旧）
         const sortedGroupLinks = groupLinks.sort((a, b) => {
           const dateA = a.date || '';
           const dateB = b.date || '';
@@ -4259,7 +4310,7 @@ document.addEventListener("DOMContentLoaded", () => {
               </span>
               <span class="toggle-icon">▾</span>
             </div>
-            <div class="group-content">${sortedGroupLinks.map((link, i) => generateTabEntry(link, i + 1)).join('')}</div>
+            <div class="group-content"><div class="list-content">${sortedGroupLinks.map((link, i) => generateTabEntry(link, i + 1)).join('')}</div><div class="thumb-content"><div class="export-thumb-grid">${sortedGroupLinks.map((link, i) => generateThumbnailEntry(link, i + 1)).join('')}</div></div></div>
           </div>`;
       }
     });
@@ -4296,7 +4347,7 @@ document.addEventListener("DOMContentLoaded", () => {
             <span class="group-header-title">📅 ${group.display} 【共有${group.links.length}个链接】</span>
             <span class="toggle-icon">▾</span>
           </div>
-          <div class="group-content">${sortedLinks.map((link, i) => generateTabEntry(link, i + 1)).join('')}</div>
+          <div class="group-content"><div class="list-content">${sortedLinks.map((link, i) => generateTabEntry(link, i + 1)).join('')}</div><div class="thumb-content"><div class="export-thumb-grid">${sortedLinks.map((link, i) => generateThumbnailEntry(link, i + 1)).join('')}</div></div></div>
         </div>`;
     });
 
@@ -4384,6 +4435,35 @@ document.addEventListener("DOMContentLoaded", () => {
         .tab-snapshot .snapshot-marker { position: absolute; width: 8px; height: 8px; background: #ff4444; border-radius: 50%; transform: translate(-50%, -50%); border: 1px solid white; box-shadow: 0 0 3px rgba(0,0,0,0.5); pointer-events: none; }
         .tab-snapshot::before { content: ''; position: absolute; inset: 0; background: linear-gradient(90deg, #f5f5f5 0%, #ececec 50%, #f5f5f5 100%); background-size: 200% 100%; animation: snapshotLoading 1.2s ease-in-out infinite; }
         .tab-snapshot.has-image::before { display: none; }
+        .export-thumb-grid { display: grid; grid-template-columns: repeat(var(--thumb-cols, 2), minmax(0, 1fr)); gap: 22px; align-items: start; }
+        .export-thumb-entry { position: relative; display: flex; flex-direction: column; gap: 0; padding: 0; overflow: hidden; border-radius: 8px; background: #fff; border: 1px solid #e3e7eb; margin-bottom: 0; align-items: stretch; }
+        .export-thumb-entry:hover { background: #fff; border-color: #b9d7ff; box-shadow: 0 0 0 1px #b9d7ff; }
+        .export-thumb-entry.selected { background: #eaf5ff; border-color: #bbdefb; }
+        .export-thumb-checkbox { position: absolute; top: 10px; left: 10px; z-index: 4; margin: 0; }
+        .export-thumb-index { position: absolute; top: 8px; right: 8px; z-index: 4; padding: 3px 8px; border-radius: 999px; background: rgba(0,0,0,0.68); color: #fff; font-size: 12px; font-weight: bold; }
+        .export-thumb-snapshot { width: 100%; aspect-ratio: 16 / 9; height: auto; border: 0; border-bottom: 1px solid #e3e7eb; border-radius: 0; background: #eef2f7; }
+        .export-thumb-snapshot img { width: 100%; height: 100%; object-fit: contain; object-position: center; display: block; }
+        .export-thumb-empty { display: flex; align-items: center; justify-content: center; color: #789; font-size: 13px; }
+        .export-thumb-detail { padding: 12px 14px 14px; min-width: 0; }
+        .export-thumb-url { margin-bottom: 6px; font-size: 14px; line-height: 1.4; display: block; overflow-wrap: anywhere; }
+        .export-thumb-meta { display: flex; flex-wrap: wrap; gap: 6px 10px; margin-top: 6px; color: #777; font-size: 12px; }
+        .thumb-page-count { color: #5b6ee1; font-weight: 600; }
+        .export-thumb-tags { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 8px; }
+        .export-thumb-tags span { display: inline-flex; align-items: center; max-width: 100%; padding: 2px 7px; border-radius: 999px; font-size: 11px; font-weight: 600; overflow-wrap: anywhere; }
+        .export-thumb-entry .tab-markers { margin-top: 8px; }
+        @media (max-width: 900px) {
+          .export-thumb-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+        }
+        /* 缩略图模式：默认隐藏缩略图，显示列表 */
+        .thumb-content { display: none; }
+        .list-content { display: block; }
+        /* 开启缩略图模式 */
+        body.thumb-mode .thumb-content { display: block; }
+        body.thumb-mode .list-content { display: none; }
+        body.thumb-mode .export-thumb-grid { display: grid; }
+        #thumbModeToggleBtn.thumb-active { background: #7B1FA2 !important; box-shadow: 0 0 0 2px #CE93D8; }
+        #thumbColSelect { padding: 5px 8px; border-radius: 4px; border: 1px solid #CE93D8; background: #7B1FA2; color: #fff; font-size: 13px; cursor: pointer; outline: none; vertical-align: middle; }
+        #thumbColSelect option { background: #4A148C; color: #fff; }
         @keyframes snapshotLoading { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
         
         /* === 高级大图预览弹窗 (复刻manager showPreviewModalV2) === */
@@ -4416,6 +4496,13 @@ document.addEventListener("DOMContentLoaded", () => {
           <button class="button" style="background:#3F51B5" id="pageSortOrderBtn" onclick="window.togglePageSortOrder()">页数排序: 关闭</button>
           <button class="button" style="background:#9C27B0" onclick="window.clearMarkers()">清除下载标记</button>
           <button class="button" style="background:#F44336" onclick="window.clearVisitHistory()">清除访问历史</button>
+          <button class="button" style="background:#9C27B0" id="thumbModeToggleBtn" onclick="window.toggleThumbMode()">🖼 缩略图关</button>
+          <select id="thumbColSelect" onchange="window.setThumbCols(this.value)">
+            <option value="2" selected>2列</option>
+            <option value="4">4列</option>
+            <option value="6">6列</option>
+            <option value="8">8列</option>
+          </select>
         </div>
         <div class="search-container" style="position: relative; display: flex; align-items: center;">
           <input type="text" class="search-input" placeholder="搜索..." oninput="window.searchTabs(this.value)" style="padding-right: 110px; width: 100%;">
@@ -4438,7 +4525,10 @@ document.addEventListener("DOMContentLoaded", () => {
         <button class="view-button" data-view="byUnchecked" style="border-left: 4px solid #9E9E9E;">⚪ 未勾选</button>
       </div>
       <div class="views">
-        <div class="tabs-container active" id="recent">${links.map((link, i) => generateTabEntry(link, i + 1, true)).join('')}</div>
+        <div class="tabs-container active" id="recent">
+          <div class="list-content">${links.map((link, i) => generateTabEntry(link, i + 1, true)).join('')}</div>
+          <div class="thumb-content"><div class="export-thumb-grid">${links.map((link, i) => generateThumbnailEntry(link, i + 1)).join('')}</div></div>
+        </div>
         <div class="tabs-container" id="bySaveTime">${bySaveTimeHTML}</div>
         <div class="tabs-container" id="byCustomGroup">${customGroupsHTML}</div>
         <div class="tabs-container" id="byTabGroup">
@@ -4447,7 +4537,7 @@ document.addEventListener("DOMContentLoaded", () => {
               <span class="group-header-title">所有链接 【共有${links.length}个链接】</span>
               <span class="toggle-icon">▾</span>
             </div>
-            <div class="group-content">${links.map((link, i) => generateTabEntry(link, i + 1)).join('')}</div>
+            <div class="group-content"><div class="list-content">${links.map((link, i) => generateTabEntry(link, i + 1)).join('')}</div><div class="thumb-content"><div class="export-thumb-grid">${links.map((link, i) => generateThumbnailEntry(link, i + 1)).join('')}</div></div></div>
           </div>
         </div>
         <div class="tabs-container" id="byRulesUnvisited"></div>
@@ -4466,7 +4556,7 @@ document.addEventListener("DOMContentLoaded", () => {
                 <span class="group-header-title">${domain} 【当前域名共有${dLinks.length}个链接】</span>
                 <span class="toggle-icon">▾</span>
               </div>
-              <div class="group-content">${sortedLinks.map((link, i) => generateTabEntry(link, i + 1)).join('')}</div>
+              <div class="group-content"><div class="list-content">${sortedLinks.map((link, i) => generateTabEntry(link, i + 1)).join('')}</div><div class="thumb-content"><div class="export-thumb-grid">${sortedLinks.map((link, i) => generateThumbnailEntry(link, i + 1)).join('')}</div></div></div>
             </div>`;
           }).join('')}
         </div>
@@ -4486,6 +4576,28 @@ document.addEventListener("DOMContentLoaded", () => {
         const ALL_GROUPS_DATA = ${ALL_GROUPS_JSON};
         let currentSortOrder = 'desc'; // 'desc' = 新→旧(默认), 'asc' = 旧→新
         let currentPageSortOrder = 'off'; // 'off' = 关闭, 'asc' = 少→多, 'desc' = 多→少
+        let isThumbMode = false;
+
+        window.toggleThumbMode = () => {
+          isThumbMode = !isThumbMode;
+          document.body.classList.toggle('thumb-mode', isThumbMode);
+          localStorage.setItem('exportThumbMode', isThumbMode ? '1' : '0');
+          const btn = document.getElementById('thumbModeToggleBtn');
+          if (btn) {
+            btn.classList.toggle('thumb-active', isThumbMode);
+            btn.textContent = isThumbMode ? '🖼 缩略图开' : '🖼 缩略图关';
+          }
+          if (isThumbMode) window.hydrateSnapshots();
+        };
+
+        window.setThumbCols = (val) => {
+          const cols = parseInt(val) || 4;
+          document.documentElement.style.setProperty('--thumb-cols', cols);
+          localStorage.setItem('exportThumbCols', cols);
+        };
+
+        const savedCols = parseInt(localStorage.getItem('exportThumbCols')) || 2;
+        document.documentElement.style.setProperty('--thumb-cols', savedCols);
 
         const getVisitedLinks = () => JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}');
         const getMarkers = () => JSON.parse(localStorage.getItem(MARKERS_STORAGE_KEY) || '{}');
@@ -4584,11 +4696,20 @@ document.addEventListener("DOMContentLoaded", () => {
         };
 
         window.updateSelectionState = () => {
-          const totalSelected = document.querySelectorAll('.tab-checkbox:checked').length;
+          const checkedIds = new Set();
+          document.querySelectorAll('.tab-checkbox:checked').forEach(cb => {
+            const entry = cb.closest('.tab-entry');
+            if (entry && entry.dataset.id) checkedIds.add(entry.dataset.id);
+          });
+          document.querySelectorAll('.tab-entry').forEach(entry => {
+            const isSelected = entry.dataset.id ? checkedIds.has(entry.dataset.id) : false;
+            const cb = entry.querySelector('.tab-checkbox');
+            if (cb) cb.checked = isSelected;
+            entry.classList.toggle('selected', isSelected);
+          });
           const btn = document.getElementById('openSelectedButton');
-          btn.disabled = totalSelected === 0;
-          btn.textContent = totalSelected > 0 ? \`打开选中的 (\${totalSelected})\` : '打开选中的链接';
-          document.querySelectorAll('.tab-checkbox').forEach(cb => cb.closest('.tab-entry').classList.toggle('selected', cb.checked));
+          btn.disabled = checkedIds.size === 0;
+          btn.textContent = checkedIds.size > 0 ? \`打开选中的 (\${checkedIds.size})\` : '打开选中的链接';
         };
 
         window.searchTabs = (q) => {
@@ -4602,13 +4723,17 @@ document.addEventListener("DOMContentLoaded", () => {
           
           const active = document.querySelector('.views > .active');
           let visibleCount = 0;
+          const countedIds = new Set();
           active.querySelectorAll('.tab-entry').forEach(e => {
             const match = e.dataset.title.toLowerCase().includes(q) || 
                          e.dataset.url.toLowerCase().includes(q) || 
                          (e.dataset.pageCount && e.dataset.pageCount.includes(q)) ||
                          (e.dataset.tags && e.dataset.tags.toLowerCase().includes(q));
             e.classList.toggle('hidden', !match);
-            if (match) visibleCount++;
+            if (match && !countedIds.has(e.dataset.id)) {
+              countedIds.add(e.dataset.id);
+              visibleCount++;
+            }
           });
           
           if (countBadge) {
@@ -4875,11 +5000,14 @@ document.addEventListener("DOMContentLoaded", () => {
 
           const active = document.querySelector('.views > .active');
           const items = [];
-          active.querySelectorAll('.tab-snapshot[data-id]').forEach((snapEl, renderIdx) => {
+          let galleryIdx = 0;
+          active.querySelectorAll('.tab-snapshot[data-id]').forEach((snapEl) => {
+            if (snapEl.offsetParent === null) return;
             const snapId = snapEl.dataset.id;
             if (ALL_SNAPSHOTS_DATA[snapId]) {
+              galleryIdx++;
               const link = ALL_TABS_DATA.find(t => String(t.id) === String(snapId));
-              items.push({ id: snapId, link, galleryIndex: renderIdx + 1 });
+              items.push({ id: snapId, link, galleryIndex: galleryIdx });
             }
           });
 
@@ -4912,8 +5040,8 @@ document.addEventListener("DOMContentLoaded", () => {
             }
           }
 
-          const dateA = a.querySelector('.tab-save-time')?.textContent.replace('保存时间: ', '') || '';
-          const dateB = b.querySelector('.tab-save-time')?.textContent.replace('保存时间: ', '') || '';
+          const dateA = (a.querySelector('.tab-save-time')?.textContent.replace('保存时间: ', '') || a.querySelector('.thumb-save-time')?.textContent || '');
+          const dateB = (b.querySelector('.tab-save-time')?.textContent.replace('保存时间: ', '') || b.querySelector('.thumb-save-time')?.textContent || '');
           return currentSortOrder === 'desc' ? dateB.localeCompare(dateA) : dateA.localeCompare(dateB);
         }
 
@@ -4938,29 +5066,49 @@ document.addEventListener("DOMContentLoaded", () => {
           const active = document.querySelector('.views > .active');
           if (!active) return;
 
-          active.querySelectorAll('.tab-group').forEach(group => {
-            const content = group.querySelector('.group-content');
-            if (!content) return;
-            const entries = Array.from(content.querySelectorAll('.tab-entry'));
+          function resortListContent(container) {
+            const entries = Array.from(container.querySelectorAll(':scope > .tab-entry'));
+            if (entries.length === 0) return;
             entries.sort(compareExportEntries);
-            content.innerHTML = '';
+            container.innerHTML = '';
             entries.forEach((entry, index) => {
               const indexEl = entry.querySelector('.tab-index');
               if (indexEl) indexEl.textContent = index + 1;
-              content.appendChild(entry);
-            });
-          });
-
-          if (!active.querySelector('.tab-group')) {
-            const entries = Array.from(active.querySelectorAll(':scope > .tab-entry'));
-            entries.sort(compareExportEntries);
-            active.innerHTML = '';
-            entries.forEach((entry, index) => {
-              const indexEl = entry.querySelector('.tab-index');
-              if (indexEl) indexEl.textContent = index + 1;
-              active.appendChild(entry);
+              container.appendChild(entry);
             });
           }
+
+          function resortThumbGrid(grid) {
+            const entries = Array.from(grid.children).filter(n => n.classList && n.classList.contains('tab-entry'));
+            if (entries.length === 0) return;
+            entries.sort(compareExportEntries);
+            grid.innerHTML = '';
+            entries.forEach((entry, index) => {
+              const indexEl = entry.querySelector('.export-thumb-index');
+              if (indexEl) indexEl.textContent = '#' + (index + 1);
+              grid.appendChild(entry);
+            });
+          }
+
+          // 有分组结构的视图
+          const groups = active.querySelectorAll('.tab-group');
+          if (groups.length > 0) {
+            groups.forEach(group => {
+              const content = group.querySelector('.group-content');
+              if (!content) return;
+              const listContent = content.querySelector('.list-content');
+              if (listContent) resortListContent(listContent);
+              const thumbGrid = content.querySelector('.export-thumb-grid');
+              if (thumbGrid) resortThumbGrid(thumbGrid);
+            });
+            return;
+          }
+
+          // recent 视图：直接包含 list-content 和 thumb-content
+          const listContent = active.querySelector(':scope > .list-content');
+          if (listContent) resortListContent(listContent);
+          const thumbGrid = active.querySelector(':scope > .thumb-content > .export-thumb-grid');
+          if (thumbGrid) resortThumbGrid(thumbGrid);
         }
 
         window.toggleSortOrder = () => {
@@ -5030,6 +5178,48 @@ document.addEventListener("DOMContentLoaded", () => {
             '</div></div>' + snapshotHTML + '</div>';
         }
 
+        function generateThumbnailEntryInternal(link, i) {
+          const escapeText = (value) => String(value || '')
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#39;');
+          const snapshotData = ALL_SNAPSHOTS_DATA[link.id];
+          const pageCount = getPageCountValue(link);
+          const pageCountDisplay = pageCount > 0 ? '<span class="thumb-page-count">页数: ' + pageCount + ' 页</span>' : '';
+          const saveTime = link.date ? '<span class="thumb-save-time">' + escapeText(link.date) + '</span>' : '';
+          let markerHTML = '';
+          if (snapshotData && link.clickPoint) {
+            const { x, y, viewportW, viewportH } = link.clickPoint;
+            if (viewportW && viewportH) {
+              const left = (x / viewportW) * 100;
+              const top = (y / viewportH) * 100;
+              markerHTML = '<div class="snapshot-marker" style="left: ' + left + '%; top: ' + top + '%;"></div>';
+            }
+          }
+          const snapshotHTML = snapshotData
+            ? '<div class="tab-snapshot export-thumb-snapshot has-image" data-id="' + link.id + '" data-hydrated="1" onclick="window.showPreview(this)"><img src="' + snapshotData + '" alt="快照缩略图">' + markerHTML + '</div>'
+            : '<div class="export-thumb-snapshot export-thumb-empty"><span>无快照</span></div>';
+          const sourceText = escapeText(link.title || link.page || '未知');
+          let tagsDisplay = '';
+          if (link.tags && link.tags.length > 0) {
+            tagsDisplay = '<div class="export-thumb-tags">' + link.tags.map(t => '<span style="background:' + t.color + '; color:' + (t.textColor || '#ffffff') + ';">' + escapeText(t.text) + '</span>').join('') + '</div>';
+          }
+          return '<div class="tab-entry export-thumb-entry" data-id="' + link.id + '" data-url="' + escapeText(link.url) + '" data-title="' + escapeText(link.title || link.page || '') + '" data-page-count="' + pageCount + '" data-tags="' + escapeText(link.tags ? link.tags.map(t => t.text).join(' ') : '') + '">' +
+            '<input type="checkbox" class="tab-checkbox export-thumb-checkbox" onclick="window.updateSelectionState()">' +
+            '<span class="export-thumb-index">#' + (i + 1) + '</span>' +
+            snapshotHTML +
+            '<div class="export-thumb-detail">' +
+            '<a href="' + escapeText(link.url) + '" class="tab-title export-thumb-url" target="_blank" onmousedown="window.handleLinkClick(event)">' + escapeText(link.url) + '</a>' +
+            '<div class="tab-url-container"><span class="tab-url-toggle" onclick="window.toggleUrl(this)">▶ 显示来源</span><div class="tab-url collapsed">来源: ' + sourceText + '</div></div>' +
+            '<div class="export-thumb-meta">' + saveTime + pageCountDisplay + '</div>' +
+            tagsDisplay +
+            '<div class="visit-info"><span class="visit-time"></span><span class="visit-count"></span></div>' +
+            '<div class="tab-markers"><label class="marker-checkbox marker-downloaded"><input type="checkbox" class="marker-downloaded-cb" onchange="window.saveMarker(this, &quot;downloaded&quot;)"><span>✓ 已下载</span></label><label class="marker-checkbox marker-skipped"><input type="checkbox" class="marker-skipped-cb" onchange="window.saveMarker(this, &quot;skipped&quot;)"><span>✗ 未下载</span></label></div>' +
+            '</div></div>';
+        }
+
         function regenerateUnvisitedView() {
           const container = document.getElementById('byRulesUnvisited');
           const visited = getVisitedLinks();
@@ -5046,7 +5236,7 @@ document.addEventListener("DOMContentLoaded", () => {
                 <span class="group-header-title">未访问的链接 【共有\${unvisitedLinks.length}个链接】</span>
                 <span class="toggle-icon">▾</span>
               </div>
-              <div class="group-content">\${unvisitedLinks.map((link, i) => generateTabEntryInternal(link, i)).join('')}</div>
+              <div class="group-content"><div class="list-content">\${unvisitedLinks.map((link, i) => generateTabEntryInternal(link, i)).join('')}</div><div class="thumb-content"><div class="export-thumb-grid">\${unvisitedLinks.map((link, i) => generateThumbnailEntryInternal(link, i)).join('')}</div></div></div>
             </div>\`;
           applyState(container);
         }
@@ -5090,7 +5280,7 @@ document.addEventListener("DOMContentLoaded", () => {
                     <span class="group-header-title">\${domain} 【未访问 \${links.length} 个链接】</span>
                     <span class="toggle-icon">▾</span>
                   </div>
-                  <div class="group-content">\${links.map((link, i) => generateTabEntryInternal(link, i)).join('')}</div>
+                  <div class="group-content"><div class="list-content">\${links.map((link, i) => generateTabEntryInternal(link, i)).join('')}</div><div class="thumb-content"><div class="export-thumb-grid">\${links.map((link, i) => generateThumbnailEntryInternal(link, i)).join('')}</div></div></div>
                 </div>\`;
             });
           } else if (lastView === 'bySaveTime') {
@@ -5119,7 +5309,7 @@ document.addEventListener("DOMContentLoaded", () => {
                     <span class="group-header-title">📅 \${group.display} 【未访问 \${group.links.length} 个链接】</span>
                     <span class="toggle-icon">▾</span>
                   </div>
-                  <div class="group-content">\${group.links.map((link, i) => generateTabEntryInternal(link, i)).join('')}</div>
+                  <div class="group-content"><div class="list-content">\${group.links.map((link, i) => generateTabEntryInternal(link, i)).join('')}</div><div class="thumb-content"><div class="export-thumb-grid">\${group.links.map((link, i) => generateThumbnailEntryInternal(link, i)).join('')}</div></div></div>
                 </div>\`;
             });
           } else if (lastView === 'byCustomGroup') {
@@ -5135,7 +5325,7 @@ document.addEventListener("DOMContentLoaded", () => {
                     </span>
                     <span class="toggle-icon">▾</span>
                   </div>
-                  <div class="group-content">\${globalLinks.map((link, i) => generateTabEntryInternal(link, i)).join('')}</div>
+                  <div class="group-content"><div class="list-content">\${globalLinks.map((link, i) => generateTabEntryInternal(link, i)).join('')}</div><div class="thumb-content"><div class="export-thumb-grid">\${globalLinks.map((link, i) => generateThumbnailEntryInternal(link, i)).join('')}</div></div></div>
                 </div>\`;
             }
             
@@ -5151,7 +5341,7 @@ document.addEventListener("DOMContentLoaded", () => {
                       </span>
                       <span class="toggle-icon">▾</span>
                     </div>
-                    <div class="group-content">\${groupLinks.map((link, i) => generateTabEntryInternal(link, i)).join('')}</div>
+                    <div class="group-content"><div class="list-content">\${groupLinks.map((link, i) => generateTabEntryInternal(link, i)).join('')}</div><div class="thumb-content"><div class="export-thumb-grid">\${groupLinks.map((link, i) => generateThumbnailEntryInternal(link, i)).join('')}</div></div></div>
                   </div>\`;
               }
             });
@@ -5180,7 +5370,7 @@ document.addEventListener("DOMContentLoaded", () => {
                     <span class="group-header-title">\${domain} 【未访问 \${links.length} 个链接】</span>
                     <span class="toggle-icon">▾</span>
                   </div>
-                  <div class="group-content">\${links.map((link, i) => generateTabEntryInternal(link, i)).join('')}</div>
+                  <div class="group-content"><div class="list-content">\${links.map((link, i) => generateTabEntryInternal(link, i)).join('')}</div><div class="thumb-content"><div class="export-thumb-grid">\${links.map((link, i) => generateThumbnailEntryInternal(link, i)).join('')}</div></div></div>
                 </div>\`;
             });
           }
@@ -5222,7 +5412,7 @@ document.addEventListener("DOMContentLoaded", () => {
                 <span class="group-header-title">链接列表 【共有\${filteredLinks.length}个链接】</span>
                 <span class="toggle-icon">▾</span>
               </div>
-              <div class="group-content">\${filteredLinks.map((link, i) => generateTabEntryInternal(link, i)).join('')}</div>
+              <div class="group-content"><div class="list-content">\${filteredLinks.map((link, i) => generateTabEntryInternal(link, i)).join('')}</div><div class="thumb-content"><div class="export-thumb-grid">\${filteredLinks.map((link, i) => generateThumbnailEntryInternal(link, i)).join('')}</div></div></div>
             </div>\`;
           applyState(container);
         }
@@ -5256,7 +5446,7 @@ document.addEventListener("DOMContentLoaded", () => {
               '<span class="group-header-title">标签 <span onclick="event.stopPropagation(); window.searchTabs(this.textContent.trim())" title="点击搜索该标签" style="display:inline-block; padding:2px 6px; border-radius:10px; background:' + tagInfo.color + '; color:' + tagInfo.textColor + '; font-size:12px; cursor:pointer;">' + escapeHtml(tagText) + '</span> 【共有' + links.length + '个链接】</span>' +
               '<span class="toggle-icon">▾</span>' +
               '</div>' +
-              '<div class="group-content">' + links.map((link, i) => generateTabEntryInternal(link, i)).join('') + '</div>' +
+              '<div class="group-content"><div class="list-content">' + links.map((link, i) => generateTabEntryInternal(link, i)).join('') + '</div><div class="thumb-content"><div class="export-thumb-grid">' + links.map((link, i) => generateThumbnailEntryInternal(link, i)).join('') + '</div></div></div>' +
               '</div>';
           });
           
@@ -5266,7 +5456,7 @@ document.addEventListener("DOMContentLoaded", () => {
               '<span class="group-header-title">未添加标签 【共有' + withoutTags.length + '个链接】</span>' +
               '<span class="toggle-icon">▾</span>' +
               '</div>' +
-              '<div class="group-content">' + withoutTags.map((link, i) => generateTabEntryInternal(link, i)).join('') + '</div>' +
+              '<div class="group-content"><div class="list-content">' + withoutTags.map((link, i) => generateTabEntryInternal(link, i)).join('') + '</div><div class="thumb-content"><div class="export-thumb-grid">' + withoutTags.map((link, i) => generateThumbnailEntryInternal(link, i)).join('') + '</div></div></div>' +
               '</div>';
           }
 
@@ -5321,6 +5511,21 @@ document.addEventListener("DOMContentLoaded", () => {
           applyState();
           window.hydrateSnapshots();
           updateExportSortButtons();
+          // 恢复缩略图模式
+          if (localStorage.getItem('exportThumbMode') === '1') {
+            isThumbMode = true;
+            document.body.classList.add('thumb-mode');
+            const btn = document.getElementById('thumbModeToggleBtn');
+            if (btn) {
+              btn.classList.add('thumb-active');
+              btn.textContent = '🖼 缩略图开';
+            }
+          }
+          // 恢复缩略图列数
+          const savedCols = parseInt(localStorage.getItem('exportThumbCols')) || 2;
+          document.documentElement.style.setProperty('--thumb-cols', savedCols);
+          const colSel = document.getElementById('thumbColSelect');
+          if (colSel) colSel.value = savedCols;
         });
       </script></body></html>`;
   }
