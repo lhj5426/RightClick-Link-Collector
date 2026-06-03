@@ -1231,6 +1231,11 @@ body.dark .search-highlight.hl-6, body.dark .nav-tag.hl-6 { background-color: #1
   gap: 8px;
 }
 
+/* 缩略图模式下隐藏标签，只显示分组 */
+.thumb-overlay-top .thumb-tags {
+  display: none !important;
+}
+
 .thumb-index-badge,
 .thumb-group-badge,
 .thumb-tag,
