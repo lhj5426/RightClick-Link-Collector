@@ -4155,7 +4155,7 @@ document.addEventListener("DOMContentLoaded", () => {
       
       let tagsDisplay = '';
       if (link.tags && link.tags.length > 0) {
-        const spanHTML = link.tags.map(t => `<span style="display:inline-block; padding:2px 8px; border-radius:12px; font-size:12px; font-weight:500; color:${t.textColor || '#ffffff'}; text-shadow:0 1px 1px rgba(0,0,0,0.3); background:${t.color}; margin-right:6px;">${escapeHtml(t.text)}</span>`).join('');
+        const spanHTML = link.tags.map(t => `<span style="display:inline-block; padding:2px 8px; border-radius:12px; font-size:14px; font-weight:500; color:${t.textColor || '#ffffff'}; text-shadow:0 1px 1px rgba(0,0,0,0.3); background:${t.color}; margin-right:6px;">${escapeHtml(t.text)}</span>`).join('');
         tagsDisplay = `<div class="tab-tags" style="margin-top:6px;">${spanHTML}</div>`;
       }
       
@@ -4398,12 +4398,13 @@ document.addEventListener("DOMContentLoaded", () => {
         .tab-url-container { margin-top: 4px; }
         .tab-url { color: #666; font-size: 0.85em; word-break: break-all; max-height: 0; overflow: hidden; transition: max-height 0.3s; background: #FFEBEE; padding: 0 8px; border-radius: 4px; }
         .tab-url.expanded { max-height: 500px; margin-top: 4px; padding: 6px 8px; }
-        .tab-url-toggle { color: #2196F3; font-size: 0.85em; cursor: pointer; user-select: none; display: inline-block; }
+        .tab-url-toggle { color: #2196F3; font-size: 0.85em; cursor: pointer; user-select: none; display: inline-block; background: #FFFFFF; padding: 3px 8px; border-radius: 4px; }
         .tab-url-toggle:hover { text-decoration: underline; }
-        .tab-save-time { color: #999; font-size: 0.8em; margin-top: 4px; }
-        .tab-page-count { color: #5b6ee1; font-size: 0.85em; margin-top: 4px; font-weight: 600; }
+        .tab-save-time, .link-date { color: #555; font-size: 0.8em; margin-top: 4px; background: #E8F5E9; padding: 3px 8px; border-radius: 4px; display: inline-block; }
+        .tab-page-count { color: #5b6ee1; font-size: 16px; margin-top: 4px; font-weight: 600; background: #FFEBEE; padding: 4px 8px; border-radius: 4px; display: inline-block; }
         .tab-note { color: #333; font-size: 0.85em; background: #FFF3E0; padding: 6px 10px; border-radius: 4px; margin-top: 6px; border-left: 3px solid #FF9800; }
-        .visit-info { display: flex; gap: 15px; font-size: 0.8em; margin-top: 6px; font-style: italic; color: #666; }
+        .visit-info { display: none; gap: 15px; font-size: 0.8em; margin-top: 6px; font-style: italic; color: #333; background: #FFEBEE; padding: 4px 8px; border-radius: 4px; }
+        .visit-info.has-content { display: inline-flex; }
         .tab-group { margin-bottom: 20px; }
         .group-header { font-size: 1.1em; font-weight: 500; color: #666; padding: 10px; background: #f5f5f5; border-radius: 4px; cursor: pointer; display: flex; justify-content: space-between; align-items: center; }
         .group-header:hover { background: #eeeeee; }
@@ -4421,19 +4422,37 @@ document.addEventListener("DOMContentLoaded", () => {
         .marker-checkbox { cursor: pointer; font-size: 13px; display: flex; align-items: center; gap: 4px; padding: 4px 8px; border-radius: 4px; user-select: none; }
         .marker-checkbox:hover { background-color: #f0f0f0; }
         .marker-checkbox input { cursor: pointer; }
-        .marker-downloaded { color: #4CAF50; font-weight: 500; }
-        .marker-skipped { color: #F44336; font-weight: 500; }
-        .tab-entry.marker-downloaded-active { background: #e8f5e9; border-color: #a5d6a7; }
-        .tab-entry.marker-downloaded-active:hover { background: #c8e6c9; }
-        .tab-entry.marker-skipped-active { background: #ffebee; border-color: #ef9a9a; }
-        .tab-entry.marker-skipped-active:hover { background: #ffcdd2; }
-        .visit-info.visited-count-1 { color: #E53935 !important; } 
-        .visit-info.visited-count-2 { color: #FB8C00 !important; }
-        .visit-info.visited-count-3 { color: #FDD835 !important; } 
-        .visit-info.visited-count-4 { color: #43A047 !important; }
-        .visit-info.visited-count-5 { color: #00ACC1 !important; } 
-        .visit-info.visited-count-6 { color: #1E88E5 !important; }
-        .visit-info.visited-count-7 { color: #5E35B1 !important; }
+        .marker-downloaded { color: #4CAF50; font-weight: 500; background: #FFFFFF; padding: 3px 8px; border-radius: 4px; }
+        .marker-skipped { color: #F44336; font-weight: 500; background: #FFFFFF; padding: 3px 8px; border-radius: 4px; }
+        /* 点击访问背景色 — 七彩，按访问次数循环（颜色已反序：文字色→背景，背景色→文字） */
+        .tab-entry.link-clicked-1 { background: #5E35B1; color: #d1c4e9; border-color: #5E35B1; }
+        .tab-entry.link-clicked-1:hover { background: #7e57c2; }
+        .tab-entry.link-clicked-2 { background: #1E88E5; color: #bbdefb; border-color: #1E88E5; }
+        .tab-entry.link-clicked-2:hover { background: #42a5f5; }
+        .tab-entry.link-clicked-3 { background: #00ACC1; color: #b2ebf2; border-color: #00ACC1; }
+        .tab-entry.link-clicked-3:hover { background: #26c6da; }
+        .tab-entry.link-clicked-4 { background: #C2185B; color: #F8BBD0; border-color: #C2185B; }
+        .tab-entry.link-clicked-4:hover { background: #D81B60; }
+        .tab-entry.link-clicked-5 { background: #F9A825; color: #fff9c4; border-color: #F9A825; }
+        .tab-entry.link-clicked-5:hover { background: #fdd835; }
+        .tab-entry.link-clicked-6 { background: #FB8C00; color: #ffe0b2; border-color: #FB8C00; }
+        .tab-entry.link-clicked-6:hover { background: #ffa726; }
+        .tab-entry.link-clicked-7 { background: #5D4037; color: #d7ccc8; border-color: #5D4037; }
+        .tab-entry.link-clicked-7:hover { background: #795548; }
+        .tab-entry.marker-downloaded-active { background: #a5d6a7; border-color: #388E3C; color: inherit; }
+        .tab-entry.marker-downloaded-active:hover { background: #81c784; }
+        .tab-entry.marker-skipped-active { background: #ef9a9a; border-color: #c62828; color: inherit; }
+        .tab-entry.marker-skipped-active:hover { background: #e57373; }
+        /* 勾选标记颜色覆盖点击颜色 */
+        .tab-entry.marker-downloaded-active[class*="link-clicked"] { background: #a5d6a7 !important; border-color: #388E3C !important; color: inherit !important; }
+        .tab-entry.marker-skipped-active[class*="link-clicked"] { background: #ef9a9a !important; border-color: #c62828 !important; color: inherit !important; }
+        .visit-info.visited-count-1 { color: #311B92 !important; }
+        .visit-info.visited-count-2 { color: #0D47A1 !important; }
+        .visit-info.visited-count-3 { color: #006064 !important; }
+        .visit-info.visited-count-4 { color: #880E4F !important; }
+        .visit-info.visited-count-5 { color: #F57F17 !important; }
+        .visit-info.visited-count-6 { color: #E65100 !important; }
+        .visit-info.visited-count-7 { color: #5D4037 !important; }
         .empty-state { text-align: center; padding: 40px; color: #666; }
         
         /* Snapshot styles in Exported HTML */
@@ -4453,10 +4472,11 @@ document.addEventListener("DOMContentLoaded", () => {
         .export-thumb-empty { display: flex; align-items: center; justify-content: center; color: #789; font-size: 13px; }
         .export-thumb-detail { padding: 12px 14px 14px; min-width: 0; }
         .export-thumb-url { margin-bottom: 6px; font-size: 14px; line-height: 1.4; display: block; overflow-wrap: anywhere; }
-        .export-thumb-meta { display: flex; flex-wrap: wrap; gap: 6px 10px; margin-top: 6px; color: #777; font-size: 12px; }
-        .thumb-page-count { color: #5b6ee1; font-weight: 600; }
+        .export-thumb-meta { display: flex; flex-wrap: wrap; gap: 6px 10px; margin-top: 6px; color: #777; font-size: 12px; align-items: center; }
+        .thumb-save-time { background: #E8F5E9; padding: 3px 8px; border-radius: 4px; color: #555; }
+        .thumb-page-count { color: #5b6ee1; font-weight: 600; background: #FFEBEE; padding: 3px 8px; border-radius: 4px; font-size: 16px; }
         .export-thumb-tags { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 8px; }
-        .export-thumb-tags span { display: inline-flex; align-items: center; max-width: 100%; padding: 2px 7px; border-radius: 999px; font-size: 11px; font-weight: 600; overflow-wrap: anywhere; }
+        .export-thumb-tags span { display: inline-flex; align-items: center; max-width: 100%; padding: 2px 7px; border-radius: 999px; font-size: 14px; font-weight: 600; overflow-wrap: anywhere; }
         .export-thumb-entry .tab-markers { margin-top: 8px; }
         @media (max-width: 900px) {
           .export-thumb-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
@@ -4505,9 +4525,13 @@ document.addEventListener("DOMContentLoaded", () => {
           <button class="button" style="background:#F44336" onclick="window.clearVisitHistory()">清除访问历史</button>
           <button class="button" style="background:#9C27B0" id="thumbModeToggleBtn" onclick="window.toggleThumbMode()">🖼 缩略图关</button>
           <select id="thumbColSelect" onchange="window.setThumbCols(this.value)">
+            <option value="1">1列</option>
             <option value="2" selected>2列</option>
+            <option value="3">3列</option>
             <option value="4">4列</option>
+            <option value="5">5列</option>
             <option value="6">6列</option>
+            <option value="7">7列</option>
             <option value="8">8列</option>
           </select>
         </div>
@@ -4629,7 +4653,9 @@ document.addEventListener("DOMContentLoaded", () => {
           visited[url] = data;
           localStorage.setItem(STORAGE_KEY, JSON.stringify(visited));
           document.querySelectorAll('.tab-entry').forEach(entry => {
-            if (entry.dataset.url === url) updateVisitInfo(entry, data);
+            if (entry.dataset.url === url) {
+              updateVisitInfo(entry, data);
+            }
           });
         };
 
@@ -4637,11 +4663,26 @@ document.addEventListener("DOMContentLoaded", () => {
           const timeEl = el.querySelector('.visit-time');
           const countEl = el.querySelector('.visit-count');
           const info = el.querySelector('.visit-info');
-          if (timeEl) timeEl.textContent = '上次访问: ' + new Date(data.lastVisited).toLocaleString();
-          if (countEl) countEl.textContent = '访问 ' + data.count + ' 次';
-          if (info) {
-            for (let i = 1; i <= 7; i++) info.classList.remove('visited-count-' + i);
-            info.classList.add('visited-count-' + (((data.count - 1) % 7) + 1));
+          if (data && data.count > 0) {
+            if (timeEl) timeEl.textContent = '上次访问: ' + new Date(data.lastVisited).toLocaleString();
+            if (countEl) countEl.textContent = '访问 ' + data.count + ' 次';
+            if (info) info.classList.add('has-content');
+            const colorIdx = (((data.count - 1) % 7) + 1);
+            if (info) {
+              for (let i = 1; i <= 7; i++) info.classList.remove('visited-count-' + i);
+              info.classList.add('visited-count-' + colorIdx);
+            }
+            // 背景色跟访问次数同步
+            for (let i = 1; i <= 7; i++) el.classList.remove('link-clicked-' + i);
+            el.classList.add('link-clicked-' + colorIdx);
+          } else {
+            if (timeEl) timeEl.textContent = '';
+            if (countEl) countEl.textContent = '';
+            if (info) {
+              info.classList.remove('has-content');
+              for (let i = 1; i <= 7; i++) info.classList.remove('visited-count-' + i);
+            }
+            for (let i = 1; i <= 7; i++) el.classList.remove('link-clicked-' + i);
           }
         };
 
@@ -4718,7 +4759,11 @@ document.addEventListener("DOMContentLoaded", () => {
             localStorage.removeItem(STORAGE_KEY);
             document.querySelectorAll('.visit-time, .visit-count').forEach(e => e.textContent = '');
             document.querySelectorAll('.visit-info').forEach(info => {
+              info.classList.remove('has-content');
               for (let i = 1; i <= 7; i++) info.classList.remove('visited-count-' + i);
+            });
+            document.querySelectorAll('.tab-entry').forEach(entry => {
+              for (let i = 1; i <= 7; i++) entry.classList.remove('link-clicked-' + i);
             });
           }
         };
@@ -5183,7 +5228,7 @@ document.addEventListener("DOMContentLoaded", () => {
           
           let tagsDisplay = '';
           if (link.tags && link.tags.length > 0) {
-            const spanHTML = link.tags.map(t => '<span onclick="event.stopPropagation(); window.searchTabs(this.textContent.trim())" title="点击搜索该标签" style="display:inline-block; padding:2px 8px; border-radius:12px; font-size:12px; font-weight:500; color:' + (t.textColor || '#ffffff') + '; text-shadow:0 1px 1px rgba(0,0,0,0.3); background:' + t.color + '; margin-right:6px; cursor:pointer;">' + escapeText(t.text) + '</span>').join('');
+            const spanHTML = link.tags.map(t => '<span onclick="event.stopPropagation(); window.searchTabs(this.textContent.trim())" title="点击搜索该标签" style="display:inline-block; padding:2px 8px; border-radius:12px; font-size:14px; font-weight:500; color:' + (t.textColor || '#ffffff') + '; text-shadow:0 1px 1px rgba(0,0,0,0.3); background:' + t.color + '; margin-right:6px; cursor:pointer;">' + escapeText(t.text) + '</span>').join('');
             tagsDisplay = '<div class="tab-tags" style="margin-top:6px;">' + spanHTML + '</div>';
           }
           
@@ -5511,7 +5556,11 @@ document.addEventListener("DOMContentLoaded", () => {
           base.querySelectorAll('.tab-entry').forEach(e => {
             const url = e.dataset.url;
             const markerKey = getMarkerKey(e);
-            if (visited[url]) updateVisitInfo(e, visited[url]);
+            if (visited[url]) {
+              updateVisitInfo(e, visited[url]);
+            } else {
+              updateVisitInfo(e, null);
+            }
             if (markerKey && markers[markerKey]) {
               if (markers[markerKey].downloaded) e.querySelector('.marker-downloaded-cb').checked = true;
               if (markers[markerKey].skipped) e.querySelector('.marker-skipped-cb').checked = true;
