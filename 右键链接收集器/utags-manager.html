@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>UT标签管理</title>
+  <link rel="stylesheet" href="utags-manager.css">
+</head>
+<body>
+  <div class="app-shell">
+    <header class="topbar">
+      <div>
+        <h1>UT标签管理</h1>
+        <p id="summaryText">正在读取 UTags JSON...</p>
+      </div>
+      <div class="global-search">
+        <div class="global-search-box">
+          <input id="globalSearchInput" type="text" placeholder="全局搜索，空格多关键字；例: 标签日期 标签[上传AICG图] -标签次级 / [上传AICG图]">
+          <div class="global-search-meta">
+            <button id="globalSearchClear" class="search-clear-btn" type="button" title="清空搜索">×</button>
+            <span id="globalSearchCount" class="global-search-count"></span>
+          </div>
+        </div>
+      </div>
+      <div class="topbar-actions">
+        <button id="reloadBtn" class="btn secondary">重新读取</button>
+        <button id="exportBtn" class="btn primary">导出UT JSON</button>
+      </div>
+    </header>
+
+    <main class="layout">
+      <aside class="tag-pane">
+        <div class="pane-switch">
+          <button type="button" class="pane-switch-btn active" data-side-mode="tag">标签</button>
+          <button type="button" class="pane-switch-btn" data-side-mode="domain">域名</button>
+        </div>
+        <div class="pane-toolbar">
+          <input id="tagSearchInput" type="search" placeholder="搜索标签">
+          <select id="tagSortSelect">
+            <option value="count">按数量</option>
+            <option value="name">按名称</option>
+          </select>
+        </div>
+        <div id="tagList" class="tag-list"></div>
+      </aside>
+
+      <section class="detail-pane">
+        <div class="detail-header">
+          <div>
+            <h2 id="selectedTagTitle">选择一个标签</h2>
+            <p id="selectedTagMeta">可以重命名、删除标签，或查看使用它的 URL。</p>
+          </div>
+          <div class="edit-actions">
+            <button id="deleteTagBtn" class="btn danger" disabled>删除标签</button>
+          </div>
+        </div>
+
+        <div class="url-toolbar">
+          <input id="urlSearchInput" type="search" placeholder="在当前列表中搜索 URL / 标题 / 标签，例: 标签日期">
+          <button id="filterDuplicateBtn" class="btn secondary" type="button">过滤重复</button>
+        </div>
+        <div id="batchToolbar" class="batch-toolbar">
+          <label class="batch-select-page">
+            <input id="batchSelectPageCheckbox" type="checkbox">
+            <span id="batchSelectedCount">已选择 0 个</span>
+          </label>
+          <button id="batchEditTagsBtn" class="btn warning" type="button">🏷️ 批量标签</button>
+          <button id="batchClearTagsBtn" class="btn danger" type="button">🗑️ 批量删除标签</button>
+          <button id="batchClearSelectionBtn" class="btn secondary" type="button">取消选择</button>
+        </div>
+        <div id="paginationBar" class="pagination-bar"></div>
+
+        <div id="urlList" class="url-list empty">
+          <div class="empty-state">请选择左侧标签。</div>
+        </div>
+        <div id="paginationBarBottom" class="pagination-bar pagination-bar-bottom"></div>
+      </section>
+    </main>
+  </div>
+
+  <script src="utags-manager.js"></script>
+</body>
+</html>

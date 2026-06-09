@@ -28,7 +28,9 @@ const FAVORITE_SEARCH_TAGS_STORAGE_KEY = 'managerFavoriteSearchTags';
 const FAVORITE_SIDEBAR_OPEN_KEY = 'managerFavoriteSidebarOpen';
 const FAVORITE_LINK_ORDER_MIGRATED_KEY = 'managerFavoriteLinkOrderMigrated';
 const UTAGS_BOOKMARKS_STORAGE_KEY = 'managerUtagsBookmarks';
+const UTAGS_FULL_JSON_STORAGE_KEY = 'managerUtagsFullJson';
 const UTAGS_IMPORTED_AT_STORAGE_KEY = 'managerUtagsImportedAt';
+const UTAGS_DIRTY_STORAGE_KEY = 'managerUtagsDirty';
 
 if (currentView === "thumbGrid") {
   currentView = "all";
@@ -77,6 +79,7 @@ document.addEventListener("DOMContentLoaded", () => {
   const groupJumpFloating = document.getElementById("groupJumpFloating");
   const headerExportDataBtn = document.getElementById("exportDataBtn");
   const headerImportDataBtn = document.getElementById("importDataBtn");
+  const openUtagsManagerBtn = document.getElementById("openUtagsManagerBtn");
   const headerImportFileInput = document.getElementById("importFileInput");
   const favoriteSidebar = document.getElementById("favoriteSidebar");
   const favoriteSidebarToggle = document.getElementById("favoriteSidebarToggle");
@@ -94,7 +97,7 @@ document.addEventListener("DOMContentLoaded", () => {
   const importDataDropdownWrap = headerImportDataBtn ? headerImportDataBtn.closest(".dropdown") : null;
   let exportFilePrefix = '';
 
-  if (headerLeft && copyAllBtn && clearAllBtn && saveHtmlDropdown && saveTxtBtn && exportDataDropdownWrap && importDataDropdownWrap) {
+  if (headerLeft && copyAllBtn && clearAllBtn && saveHtmlDropdown && saveTxtBtn && exportDataDropdownWrap && importDataDropdownWrap && openUtagsManagerBtn) {
     let titleGroup = headerLeft.querySelector(".header-title-group");
     if (!titleGroup) {
       titleGroup = document.createElement("div");
@@ -116,6 +119,7 @@ document.addEventListener("DOMContentLoaded", () => {
     buttonGrid.appendChild(copyAllBtn);
     buttonGrid.appendChild(exportDataDropdownWrap);
     buttonGrid.appendChild(importDataDropdownWrap);
+    buttonGrid.appendChild(openUtagsManagerBtn);
     buttonGrid.appendChild(clearAllBtn);
     buttonGrid.appendChild(saveHtmlDropdown);
     buttonGrid.appendChild(saveTxtBtn);
@@ -124,7 +128,7 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
     if (toolbarActions) {
-      toolbarActions.querySelectorAll('.dropdown, #saveTxtBtn, #exportDataBtn, #importDataBtn, #importFileInput')
+      toolbarActions.querySelectorAll('.dropdown, #saveTxtBtn, #exportDataBtn, #importDataBtn, #openUtagsManagerBtn, #importFileInput')
         .forEach(el => {
           if (el && el.parentElement === toolbarActions) {
             el.remove();
@@ -4196,7 +4200,9 @@ document.addEventListener("DOMContentLoaded", () => {
 
         chrome.storage.local.set({
           [UTAGS_BOOKMARKS_STORAGE_KEY]: bookmarks,
+          [UTAGS_FULL_JSON_STORAGE_KEY]: data,
           [UTAGS_IMPORTED_AT_STORAGE_KEY]: new Date().toISOString(),
+          [UTAGS_DIRTY_STORAGE_KEY]: false,
         }, () => {
           utagsBookmarks = bookmarks;
           renderLinks();
@@ -4270,6 +4276,11 @@ document.addEventListener("DOMContentLoaded", () => {
     pendingImportType = 'utags';
     importDataDropdown?.classList.remove('show');
     importFileInput?.click();
+  });
+
+  document.getElementById('openUtagsManagerBtn')?.addEventListener('click', () => {
+    const url = chrome.runtime.getURL('utags-manager.html');
+    chrome.tabs.create({ url });
   });
   
   if (importFileInput) {

@@ -405,7 +405,7 @@ body.favorite-sidebar-open .container {
 
 .header-button-grid {
   display: grid;
-  grid-template-columns: repeat(3, max-content);
+  grid-template-columns: repeat(4, max-content);
   gap: 4px 10px;
   align-items: center;
   margin-left: 0;
