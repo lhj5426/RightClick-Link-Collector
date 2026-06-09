@@ -301,7 +301,7 @@ select:focus {
   align-items: center;
   gap: 10px;
   flex-wrap: wrap;
-  margin: 14px 0;
+  margin: 10px 0 8px;
 }
 
 .url-toolbar .btn {
@@ -312,7 +312,7 @@ select:focus {
   display: none;
   align-items: center;
   gap: 10px;
-  margin-bottom: 12px;
+  margin-bottom: 8px;
   border-radius: 8px;
   background: var(--accent);
   color: #fff;
@@ -349,8 +349,9 @@ select:focus {
 }
 
 .url-list {
-  flex: 1 1 auto;
+  flex: 0 1 auto;
   min-height: 0;
+  max-height: calc(100vh - 300px);
   overflow: auto;
   display: flex;
   flex-direction: column;
@@ -493,14 +494,19 @@ select:focus {
 }
 
 .pagination-bar {
-  min-height: 36px;
+  min-height: 0;
   display: flex;
   align-items: center;
   gap: 8px;
-  margin-bottom: 10px;
+  margin-bottom: 8px;
   color: var(--muted);
   font-size: 13px;
   font-weight: 700;
+}
+
+.pagination-bar:empty {
+  display: none;
+  margin: 0;
 }
 
 .pagination-bar-bottom {

@@ -2,6 +2,7 @@ const UTAGS_BOOKMARKS_STORAGE_KEY = 'managerUtagsBookmarks';
 const UTAGS_FULL_JSON_STORAGE_KEY = 'managerUtagsFullJson';
 const UTAGS_IMPORTED_AT_STORAGE_KEY = 'managerUtagsImportedAt';
 const UTAGS_DIRTY_STORAGE_KEY = 'managerUtagsDirty';
+const DELETED_BOOKMARK_TAGS = new Set(['._DELETED_', '_DELETED_']);
 
 let utagsJson = null;
 let importedAt = '';
@@ -36,6 +37,18 @@ function getData() {
     return {};
   }
   return utagsJson.data;
+}
+
+function getRawTags(entry) {
+  return Array.isArray(entry?.tags) ? entry.tags.map(tag => String(tag ?? '').trim()).filter(Boolean) : [];
+}
+
+function isDeletedEntry(entry) {
+  return !!entry?.deletedMeta || getRawTags(entry).some(tag => DELETED_BOOKMARK_TAGS.has(tag));
+}
+
+function getActiveDataEntries() {
+  return Object.entries(getData()).filter(([, entry]) => !isDeletedEntry(entry));
 }
 
 function normalizeTags(value) {
@@ -89,9 +102,10 @@ function setDirty(value) {
   chrome.storage.local.set({ [UTAGS_DIRTY_STORAGE_KEY]: dirty });
 }
 
-function getTagStats() {
+function getTagStats(includeDeleted = false) {
   const stats = new Map();
-  for (const [url, entry] of Object.entries(getData())) {
+  const entries = includeDeleted ? Object.entries(getData()) : getActiveDataEntries();
+  for (const [url, entry] of entries) {
     const tags = normalizeTags(entry?.tags);
     if (entry && Array.isArray(entry.tags) && tags.length !== entry.tags.length) {
       entry.tags = tags;
@@ -146,7 +160,7 @@ function formatEntryTime(entry) {
 
 function getDomainStats() {
   const stats = new Map();
-  for (const url of Object.keys(getData())) {
+  for (const [url] of getActiveDataEntries()) {
     const domain = getDomainFromUrl(url);
     if (!stats.has(domain)) stats.set(domain, { name: domain, count: 0, urls: [] });
     const item = stats.get(domain);
@@ -159,7 +173,8 @@ function getDomainStats() {
 function getFilteredTagStats() {
   const keyword = els.tagSearchInput.value.trim().toLowerCase();
   const sort = els.tagSortSelect.value;
-  let stats = sideMode === 'domain' ? getDomainStats() : getTagStats().map(item => ({ name: item.tag, tag: item.tag, count: item.count, urls: item.urls }));
+  const includeDeleted = keyword.includes('._deleted_') || keyword.includes('_deleted_');
+  let stats = sideMode === 'domain' ? getDomainStats() : getTagStats(includeDeleted).map(item => ({ name: item.tag, tag: item.tag, count: item.count, urls: item.urls }));
   if (keyword) {
     stats = stats.filter(item => item.name.toLowerCase().includes(keyword));
   }
@@ -171,12 +186,12 @@ function getFilteredTagStats() {
 }
 
 function updateSummary() {
-  const data = getData();
-  const entries = Object.entries(data);
+  const entries = getActiveDataEntries();
   const tagStats = getTagStats();
+  const domainCount = getDomainStats().length;
   const tagTotal = tagStats.reduce((sum, item) => sum + item.count, 0);
   const timeText = importedAt ? ` | 导入时间: ${new Date(importedAt).toLocaleString()}` : '';
-  els.summaryText.textContent = `URL: ${entries.length} | 标签种类: ${tagStats.length} | 标签总数: ${tagTotal}${timeText}`;
+  els.summaryText.textContent = `URL: ${entries.length} | 标签种类: ${tagStats.length} | 域名: ${domainCount} | 标签总数: ${tagTotal}${timeText}`;
 }
 
 function renderTagList() {
@@ -233,7 +248,9 @@ function getSelectedTagUrls() {
   if (sideMode === 'tag' && !selectedTag) return [];
   if (sideMode === 'domain' && !selectedDomain) return [];
   const rows = [];
-  for (const [url, entry] of Object.entries(getData())) {
+  const includeDeleted = sideMode === 'tag' && DELETED_BOOKMARK_TAGS.has(selectedTag);
+  const entries = includeDeleted ? Object.entries(getData()) : getActiveDataEntries();
+  for (const [url, entry] of entries) {
     const tags = normalizeTags(entry?.tags);
     const title = String(entry?.meta?.title || entry?.title || '').trim();
     const timeText = formatEntryTime(entry);
@@ -287,6 +304,10 @@ function normalizeDateShortcut(raw) {
     return 'tag-date-marker';
   }
   return '';
+}
+
+function shouldSearchIncludeDeleted(keywords) {
+  return keywords.some(term => String(term.raw || term.keyword || '').toLowerCase().includes('_deleted_'));
 }
 
 function parseSearchKeywords(value) {
@@ -376,13 +397,14 @@ function updateGlobalSearchMeta(count) {
 function getGlobalSearchRows() {
   const keywords = parseSearchKeywords(els.globalSearchInput.value);
   if (keywords.length === 0) return [];
-  return getAllRows().filter(row => matchesSearchKeywords(getSearchFields(row.url, row.title, row.tags, row.timeText), keywords))
+  return getAllRows(shouldSearchIncludeDeleted(keywords)).filter(row => matchesSearchKeywords(getSearchFields(row.url, row.title, row.tags, row.timeText), keywords))
     .sort((a, b) => (a.title || a.url).localeCompare(b.title || b.url, 'zh-Hans-CN'));
 }
 
-function getAllRows() {
+function getAllRows(includeDeleted = false) {
   const rows = [];
-  for (const [url, entry] of Object.entries(getData())) {
+  const entries = includeDeleted ? Object.entries(getData()) : getActiveDataEntries();
+  for (const [url, entry] of entries) {
     const tags = normalizeTags(entry?.tags);
     const title = String(entry?.meta?.title || entry?.title || '').trim();
     const timeText = formatEntryTime(entry);
@@ -648,6 +670,7 @@ function setEntryTagsByUrl(url, tags) {
 function pruneEmptyTagEntries() {
   const data = getData();
   for (const [url, entry] of Object.entries(data)) {
+    if (isDeletedEntry(entry)) continue;
     const tags = normalizeTags(entry?.tags);
     if (tags.length === 0) {
       delete data[url];
@@ -660,7 +683,7 @@ function pruneEmptyTagEntries() {
 
 function getAllExistingTags() {
   const tags = new Set();
-  for (const entry of Object.values(getData())) {
+  for (const [, entry] of getActiveDataEntries()) {
     normalizeTags(entry?.tags).forEach(tag => tags.add(tag));
   }
   return Array.from(tags).sort((a, b) => a.localeCompare(b, 'zh-Hans-CN'));
@@ -1154,8 +1177,9 @@ function renderAll() {
 function getTagUsageCount(tagName) {
   const target = String(tagName || '').trim();
   if (!target) return 0;
+  const entries = DELETED_BOOKMARK_TAGS.has(target) ? Object.entries(getData()) : getActiveDataEntries();
   let count = 0;
-  for (const entry of Object.values(getData())) {
+  for (const [, entry] of entries) {
     if (normalizeTags(entry?.tags).includes(target)) count++;
   }
   return count;
@@ -1164,8 +1188,10 @@ function getTagUsageCount(tagName) {
 function getMergedTagUsageCount(fromTag, toTag) {
   const from = String(fromTag || '').trim();
   const to = String(toTag || '').trim();
+  const includeDeleted = DELETED_BOOKMARK_TAGS.has(from) || DELETED_BOOKMARK_TAGS.has(to);
+  const entries = includeDeleted ? Object.entries(getData()) : getActiveDataEntries();
   const urls = new Set();
-  for (const [url, entry] of Object.entries(getData())) {
+  for (const [url, entry] of entries) {
     const tags = normalizeTags(entry?.tags);
     if (tags.includes(from) || tags.includes(to)) {
       urls.add(url);
@@ -1187,7 +1213,10 @@ function renameTag(oldTag) {
     : `标签「${currentTag}」当前有 ${currentCount} 个 URL。\n标签「${newTag}」当前不存在。\n\n确定把「${currentTag}」重命名为「${newTag}」吗？`;
   if (!confirm(confirmText)) return;
 
-  for (const entry of Object.values(getData())) {
+  const renameEntries = (DELETED_BOOKMARK_TAGS.has(currentTag) || DELETED_BOOKMARK_TAGS.has(newTag))
+    ? Object.entries(getData())
+    : getActiveDataEntries();
+  for (const [, entry] of renameEntries) {
     const tags = normalizeTags(entry?.tags);
     if (!tags.includes(currentTag)) continue;
     const nextTags = tags.map(tag => tag === currentTag ? newTag : tag);
@@ -1202,9 +1231,11 @@ function renameTag(oldTag) {
 function deleteSelectedTag() {
   const tag = selectedTag;
   if (!tag) return;
-  if (!confirm(`确定从所有 URL 中删除标签「${tag}」吗？`)) return;
+  const count = getTagUsageCount(tag);
+  if (!confirm(`标签「${tag}」当前有 ${count} 个 URL。\n\n确定从所有 URL 中删除这个标签吗？`)) return;
 
-  for (const [url, entry] of Object.entries(getData())) {
+  const deleteEntries = DELETED_BOOKMARK_TAGS.has(tag) ? Object.entries(getData()) : getActiveDataEntries();
+  for (const [url, entry] of deleteEntries) {
     const tags = normalizeTags(entry?.tags);
     if (tags.includes(tag)) {
       setEntryTagsByUrl(url, tags.filter(item => item !== tag));
@@ -1220,6 +1251,7 @@ function buildBookmarksIndex(data) {
   const result = {};
   const source = data?.data && typeof data.data === 'object' ? data.data : {};
   for (const [url, entry] of Object.entries(source)) {
+    if (isDeletedEntry(entry)) continue;
     const tags = normalizeTags(entry?.tags);
     if (tags.length === 0) continue;
     for (const key of getUtagsUrlCandidates(url)) {
@@ -1268,6 +1300,62 @@ function fallbackFromBookmarks(bookmarks) {
   return { data };
 }
 
+function importUtagsJsonFile(file) {
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = (e) => {
+    try {
+      const data = JSON.parse(e.target.result);
+      if (!data || !data.data || typeof data.data !== 'object') {
+        throw new Error('这个文件不是有效的 UTags JSON：缺少 data 对象');
+      }
+      utagsJson = data;
+      importedAt = new Date().toISOString();
+      selectedTag = '';
+      selectedDomain = '';
+      selectedUrls.clear();
+      currentRows = [];
+      currentPage = 1;
+      duplicateFilterActive = false;
+      duplicateFocusKey = '';
+      els.globalSearchInput.value = '';
+      els.urlSearchInput.value = '';
+      pruneEmptyTagEntries();
+      const bookmarks = buildBookmarksIndex(utagsJson);
+      chrome.storage.local.set({
+        [UTAGS_FULL_JSON_STORAGE_KEY]: utagsJson,
+        [UTAGS_BOOKMARKS_STORAGE_KEY]: bookmarks,
+        [UTAGS_IMPORTED_AT_STORAGE_KEY]: importedAt,
+        [UTAGS_DIRTY_STORAGE_KEY]: false,
+      }, () => {
+        setDirty(false);
+        renderAll();
+        alert(`UTags JSON 读取完成：${getActiveDataEntries().length} 个 URL`);
+      });
+    } catch (err) {
+      console.error('UTags JSON 读取失败:', err);
+      alert(`UTags JSON 读取失败：${err.message}`);
+    }
+  };
+  reader.readAsText(file);
+}
+
+function chooseUtagsJsonFile() {
+  const input = document.createElement('input');
+  input.type = 'file';
+  input.accept = '.json,application/json';
+  input.style.display = 'none';
+  input.addEventListener('change', () => {
+    const file = input.files?.[0];
+    input.remove();
+    if (!file) return;
+    if (dirty && !confirm('当前修改尚未导出，读取新的 JSON 会覆盖当前 UT 管理数据。确定继续吗？')) return;
+    importUtagsJsonFile(file);
+  }, { once: true });
+  document.body.appendChild(input);
+  input.click();
+}
+
 function loadData() {
   chrome.storage.local.get({
     [UTAGS_FULL_JSON_STORAGE_KEY]: null,
@@ -1292,8 +1380,7 @@ function loadData() {
 
 function bindEvents() {
   els.reloadBtn.addEventListener('click', () => {
-    if (dirty && !confirm('当前修改尚未导出，确定重新读取吗？')) return;
-    loadData();
+    chooseUtagsJsonFile();
   });
   els.exportBtn.addEventListener('click', exportJson);
   els.deleteTagBtn.addEventListener('click', deleteSelectedTag);
