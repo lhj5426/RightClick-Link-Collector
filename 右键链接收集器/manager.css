@@ -2545,6 +2545,56 @@ body.preview-detail-lock {
   transform: scale(1.05);
 }
 
+.utags-tags {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.utags-tag {
+  display: inline-flex;
+  align-items: center;
+  max-width: 100%;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.utags-tag {
+  padding: 2px 8px;
+  border: 1px solid #a855f7;
+  background: #faf5ff;
+  color: #6d28d9;
+  cursor: pointer;
+}
+
+.utags-tag:hover {
+  background: #f3e8ff;
+  transform: scale(1.05);
+}
+
+.utags-tags-thumb {
+  display: inline-flex;
+  margin-top: 0;
+  min-width: 0;
+}
+
+.thumb-top-row .utags-tags-thumb {
+  flex: 1 1 auto;
+  gap: 4px;
+}
+
+.thumb-top-row .utags-tag {
+  padding: 3px 7px;
+  font-size: 12px;
+  line-height: 1.2;
+}
+
 /* 编辑窗标签预览胶囊 */
 .edit-tag-capsule {
   display: inline-flex;

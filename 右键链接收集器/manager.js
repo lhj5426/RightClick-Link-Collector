@@ -17,6 +17,8 @@ let currentSearchKeywords = []; // 当前搜索的多关键字
 let selectedLinkIds = new Set();
 let favoriteLinkIds = [];
 let favoriteSearchTags = [];
+let utagsBookmarks = {};
+let pendingImportType = 'collector';
 const STORAGE_KEY = 'tabSaverVisitedLinks';
 const GROUP_COLLAPSE_STATE_KEY = 'tabSaverGroupCollapseStates';
 const DEFAULT_GROUPS = [];
@@ -25,6 +27,8 @@ const FAVORITE_LINK_IDS_STORAGE_KEY = 'managerFavoriteLinkIds';
 const FAVORITE_SEARCH_TAGS_STORAGE_KEY = 'managerFavoriteSearchTags';
 const FAVORITE_SIDEBAR_OPEN_KEY = 'managerFavoriteSidebarOpen';
 const FAVORITE_LINK_ORDER_MIGRATED_KEY = 'managerFavoriteLinkOrderMigrated';
+const UTAGS_BOOKMARKS_STORAGE_KEY = 'managerUtagsBookmarks';
+const UTAGS_IMPORTED_AT_STORAGE_KEY = 'managerUtagsImportedAt';
 
 if (currentView === "thumbGrid") {
   currentView = "all";
@@ -87,9 +91,10 @@ document.addEventListener("DOMContentLoaded", () => {
   const toolbarActions = document.querySelector(".toolbar-actions");
   const saveHtmlDropdown = saveHtmlBtn ? saveHtmlBtn.closest(".dropdown") : null;
   const exportDataDropdownWrap = headerExportDataBtn ? headerExportDataBtn.closest(".dropdown") : null;
+  const importDataDropdownWrap = headerImportDataBtn ? headerImportDataBtn.closest(".dropdown") : null;
   let exportFilePrefix = '';
 
-  if (headerLeft && copyAllBtn && clearAllBtn && saveHtmlDropdown && saveTxtBtn && exportDataDropdownWrap && headerImportDataBtn) {
+  if (headerLeft && copyAllBtn && clearAllBtn && saveHtmlDropdown && saveTxtBtn && exportDataDropdownWrap && importDataDropdownWrap) {
     let titleGroup = headerLeft.querySelector(".header-title-group");
     if (!titleGroup) {
       titleGroup = document.createElement("div");
@@ -110,7 +115,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
     buttonGrid.appendChild(copyAllBtn);
     buttonGrid.appendChild(exportDataDropdownWrap);
-    buttonGrid.appendChild(headerImportDataBtn);
+    buttonGrid.appendChild(importDataDropdownWrap);
     buttonGrid.appendChild(clearAllBtn);
     buttonGrid.appendChild(saveHtmlDropdown);
     buttonGrid.appendChild(saveTxtBtn);
@@ -141,6 +146,59 @@ document.addEventListener("DOMContentLoaded", () => {
     const div = document.createElement('div');
     div.textContent = s;
     return div.innerHTML;
+  }
+
+  function normalizeUtagsUrl(url) {
+    const text = String(url || '').trim();
+    if (!text) return '';
+    try {
+      const parsed = new URL(text);
+      parsed.hash = '';
+      return parsed.href;
+    } catch {
+      return text.replace(/#.*$/, '');
+    }
+  }
+
+  function getUtagsUrlCandidates(url) {
+    const normalized = normalizeUtagsUrl(url);
+    if (!normalized) return [];
+    const candidates = new Set([normalized]);
+    if (normalized.endsWith('/')) {
+      candidates.add(normalized.slice(0, -1));
+    } else {
+      candidates.add(`${normalized}/`);
+    }
+    try {
+      const parsed = new URL(normalized);
+      if (parsed.hostname === 'e-hentai.org') {
+        parsed.hostname = 'exhentai.org';
+        candidates.add(parsed.href);
+      } else if (parsed.hostname === 'exhentai.org') {
+        parsed.hostname = 'e-hentai.org';
+        candidates.add(parsed.href);
+      }
+    } catch {}
+    return [...candidates];
+  }
+
+  function getUtagsForUrl(url) {
+    for (const key of getUtagsUrlCandidates(url)) {
+      const item = utagsBookmarks[key];
+      if (item && Array.isArray(item.tags) && item.tags.length > 0) {
+        return item.tags.map(tag => String(tag || '').trim()).filter(Boolean);
+      }
+    }
+    return [];
+  }
+
+  function getUtagsTagsHtml(link, mode = 'card') {
+    const tags = getUtagsForUrl(link?.url);
+    if (tags.length === 0) return '';
+    const tagHtml = tags.map(tag =>
+      `<span class="utags-tag" data-tag-text="${escapeHtml(tag)}" data-utags-tag="${escapeHtml(tag)}" title="${escapeHtml(tag)}">${escapeHtml(tag)}</span>`
+    ).join('');
+    return `<div class="utags-tags utags-tags-${mode}">${tagHtml}</div>`;
   }
 
   function sanitizeExportPrefix(prefix) {
@@ -807,9 +865,13 @@ document.addEventListener("DOMContentLoaded", () => {
       toastDurationSeconds: 3,
       exportFilePrefix: '',
       [FAVORITE_LINK_IDS_STORAGE_KEY]: [],
-      [FAVORITE_SEARCH_TAGS_STORAGE_KEY]: []
+      [FAVORITE_SEARCH_TAGS_STORAGE_KEY]: [],
+      [UTAGS_BOOKMARKS_STORAGE_KEY]: {}
     }, (res) => {
       allLinks = Array.isArray(res.links) ? res.links : [];
+      utagsBookmarks = res[UTAGS_BOOKMARKS_STORAGE_KEY] && typeof res[UTAGS_BOOKMARKS_STORAGE_KEY] === 'object'
+        ? res[UTAGS_BOOKMARKS_STORAGE_KEY]
+        : {};
       favoriteLinkIds = Array.isArray(res[FAVORITE_LINK_IDS_STORAGE_KEY])
         ? res[FAVORITE_LINK_IDS_STORAGE_KEY].map(normalizeFavoriteId)
         : [];
@@ -1235,6 +1297,7 @@ document.addEventListener("DOMContentLoaded", () => {
           `<span class="link-tag" style="background: ${tag.color}; color: ${tag.textColor || '#ffffff'};" data-tag-text="${escapeHtml(tag.text)}" title="${getTagActionTitle(tag.text)}">${escapeHtml(tag.text)}</span>`
         ).join('')}</div>`
       : '';
+    const utagsHtml = getUtagsTagsHtml(link, 'preview');
 
     const descHtml = link.desc
       ? `<div class="link-description" title="${escapeHtml(link.desc)}">${escapeHtml(link.desc)}</div>`
@@ -1246,6 +1309,7 @@ document.addEventListener("DOMContentLoaded", () => {
           <div class="link-index">${index || ''}</div>
           <div class="link-content">
             <a href="${escapeHtml(link.url)}" class="link-url preview-detail-link" target="_blank" rel="noopener noreferrer" data-url="${escapeHtml(link.url)}">${escapeHtml(link.url)}</a>
+            ${utagsHtml}
             <div class="link-source">来源: ${escapeHtml(link.title || link.page || '未知')} ${groupBadge} ${duplicateBadge}</div>
             <div class="link-date">保存时间: ${escapeHtml(link.date || '')}</div>
             ${pageCountText ? `<div class="link-page-count">页数: <span class="page-count-pill">${escapeHtml(pageCountText)}</span></div>` : ''}
@@ -1360,9 +1424,11 @@ document.addEventListener("DOMContentLoaded", () => {
       visible = allLinks.filter(link => 
         currentSearchKeywords.some(kw => {
           const groupName = link.groupId ? (allGroups.find(g => g.id === link.groupId)?.name || "") : "无分组";
+          const utagsText = getUtagsForUrl(link.url).join(' ');
           return (link.url || "").toLowerCase().includes(kw) ||
           (link.title || "").toLowerCase().includes(kw) ||
           (link.tags ? link.tags.map(t=>t.text).join(' ') : "").toLowerCase().includes(kw) ||
+          utagsText.toLowerCase().includes(kw) ||
           (link.desc || "").toLowerCase().includes(kw) ||
           getPageCountText(link).toLowerCase().includes(kw) ||
           (link.page || "").toLowerCase().includes(kw) ||
@@ -1411,11 +1477,13 @@ document.addEventListener("DOMContentLoaded", () => {
         lowerKeywords.forEach((kw, kwIndex) => {
           // 找出当前搜索结果中，包含这个子关键字的 linkId
           const matchingIds = visible.filter(link => {
-            const groupName = link.groupId ? (allGroups.find(g => g.id === link.groupId)?.name || "") : "无分组";
-            return (link.url || "").toLowerCase().includes(kw) ||
-            (link.title || "").toLowerCase().includes(kw) ||
-            (link.tags ? link.tags.map(t=>t.text).join(' ') : "").toLowerCase().includes(kw) ||
-            (link.desc || "").toLowerCase().includes(kw) ||
+          const groupName = link.groupId ? (allGroups.find(g => g.id === link.groupId)?.name || "") : "无分组";
+          const utagsText = getUtagsForUrl(link.url).join(' ');
+          return (link.url || "").toLowerCase().includes(kw) ||
+          (link.title || "").toLowerCase().includes(kw) ||
+          (link.tags ? link.tags.map(t=>t.text).join(' ') : "").toLowerCase().includes(kw) ||
+          utagsText.toLowerCase().includes(kw) ||
+          (link.desc || "").toLowerCase().includes(kw) ||
             getPageCountText(link).toLowerCase().includes(kw) ||
             (link.page || "").toLowerCase().includes(kw) ||
             groupName.toLowerCase().includes(kw);
@@ -1951,12 +2019,14 @@ document.addEventListener("DOMContentLoaded", () => {
     const visibleTags = tagList.map(tag =>
       `<span class="thumb-tag" style="background: ${tag.color}; color: ${tag.textColor || '#ffffff'};" data-tag-text="${escapeHtml(tag.text)}" title="${isTagUrl(tag.text) ? '点击直接打开此网址' : '点击过滤带有此标签的条目'}">${escapeHtml(tag.text)}</span>`
     ).join('');
+    const utagsOverlayHtml = getUtagsTagsHtml(link, 'thumb');
     const mediaBorderColor = groupInfo.color || '#9E9E9E';
     const overlayHtml = `
       <div class="thumb-overlay-top">
         <div class="thumb-top-row">
           <span class="thumb-index-badge">#${index}</span>
           <span class="thumb-group-badge" style="background: ${groupInfo.color}; color: ${groupInfo.textColor};" data-group-name="${escapeHtml(groupInfo.name)}" title="点击过滤此分组">${escapeHtml(groupInfo.name)}</span>
+          ${utagsOverlayHtml}
           ${duplicateBadge}
         </div>
         ${tagList.length > 0 ? `<div class="thumb-tags">${visibleTags}</div>` : ''}
@@ -1977,7 +2047,7 @@ document.addEventListener("DOMContentLoaded", () => {
     const media = card.querySelector(`#thumb-${link.id}`);
     const checkbox = card.querySelector('.thumb-select-checkbox');
     const bindThumbnailOverlayInteractions = (container) => {
-      container.querySelectorAll('.thumb-tag').forEach(tagEl => {
+      container.querySelectorAll('.thumb-tag, .utags-tag').forEach(tagEl => {
         bindTagAction(tagEl);
       });
 
@@ -2122,6 +2192,7 @@ document.addEventListener("DOMContentLoaded", () => {
       ).join('');
       tagsDisplay = `<div class="link-tags">${tagsHrml}</div>`;
     }
+    const utagsDisplay = getUtagsTagsHtml(link, 'card');
       
     // 描述显示
     const descDisplay = link.desc
@@ -2137,6 +2208,7 @@ document.addEventListener("DOMContentLoaded", () => {
       <div class="link-index">${index}</div>
       <div class="link-content">
         <a href="${escapeHtml(link.url)}" class="link-url" target="_blank" data-url="${escapeHtml(link.url)}">${highlightText(link.url, currentSearchKeywords)}</a>
+        ${utagsDisplay}
         <div class="link-source">来源: ${highlightText(link.title || link.page || '未知', currentSearchKeywords)} ${groupBadge} ${duplicateBadge}</div>
         <div class="link-date">保存时间: ${escapeHtml(link.date || '')}</div>
         ${pageCountDisplay}
@@ -2212,7 +2284,7 @@ document.addEventListener("DOMContentLoaded", () => {
       });
     }
     // 自定义标签胶囊点击事件 - 过滤显示该标签
-    card.querySelectorAll('.link-tag').forEach(tagEl => {
+    card.querySelectorAll('.link-tag, .utags-tag').forEach(tagEl => {
       bindTagAction(tagEl);
     });
     
@@ -3411,6 +3483,7 @@ document.addEventListener("DOMContentLoaded", () => {
     e.stopPropagation();
     if (groupJumpDropdown) groupJumpDropdown.classList.remove("show");
     if (autoCloseModal) autoCloseModal.classList.remove("show");
+    importDataDropdown?.classList.remove('show');
     if (htmlDropdown) htmlDropdown.classList.toggle("show");
   });
 
@@ -3439,6 +3512,9 @@ document.addEventListener("DOMContentLoaded", () => {
     }
     if (exportDataDropdown && exportDataDropdown.classList.contains("show") && !e.target.closest(".dropdown")) {
       exportDataDropdown.classList.remove("show");
+    }
+    if (importDataDropdown && importDataDropdown.classList.contains("show") && !e.target.closest(".dropdown")) {
+      importDataDropdown.classList.remove("show");
     }
     if (groupJumpDropdown && groupJumpDropdown.classList.contains("show") && !e.target.closest(".group-jump-dropdown")) {
       groupJumpDropdown.classList.remove("show");
@@ -4077,18 +4153,85 @@ document.addEventListener("DOMContentLoaded", () => {
     };
     reader.readAsText(file);
   }
+
+  function normalizeImportedUtagsBookmarks(data) {
+    const source = data && typeof data === 'object' && data.data && typeof data.data === 'object'
+      ? data.data
+      : data;
+    if (!source || typeof source !== 'object') {
+      throw new Error('无效的 UTags JSON：缺少 data 对象');
+    }
+
+    const result = {};
+    let importedCount = 0;
+    Object.entries(source).forEach(([url, entry]) => {
+      if (!entry || typeof entry !== 'object' || !Array.isArray(entry.tags)) return;
+      const tags = entry.tags.map(tag => String(tag || '').trim()).filter(Boolean);
+      if (tags.length === 0) return;
+
+      const compactEntry = {
+        tags: Array.from(new Set(tags)),
+      };
+
+      getUtagsUrlCandidates(url).forEach(key => {
+        if (key) result[key] = compactEntry;
+      });
+      importedCount++;
+    });
+
+    if (importedCount === 0) {
+      throw new Error('没有在 UTags JSON 中找到可用标签');
+    }
+
+    return { bookmarks: result, importedCount };
+  }
+
+  function importUtagsData(file) {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      try {
+        const data = JSON.parse(e.target.result);
+        const { bookmarks, importedCount } = normalizeImportedUtagsBookmarks(data);
+        const matchedCount = allLinks.filter(link => getUtagsUrlCandidates(link.url).some(key => bookmarks[key])).length;
+
+        chrome.storage.local.set({
+          [UTAGS_BOOKMARKS_STORAGE_KEY]: bookmarks,
+          [UTAGS_IMPORTED_AT_STORAGE_KEY]: new Date().toISOString(),
+        }, () => {
+          utagsBookmarks = bookmarks;
+          renderLinks();
+          showLargeMessage('UTags JSON 导入完成', [
+            {
+              title: '导入结果',
+              lines: [
+                `UTags 条目：${importedCount}`,
+                `当前列表命中：${matchedCount}`,
+                '已保存为只读 UTags 标签索引，不会修改扩展自身标签。'
+              ]
+            }
+          ]);
+        });
+      } catch (err) {
+        console.error('UTags JSON 导入失败:', err);
+        alert('UTags JSON 导入失败：' + err.message);
+      }
+    };
+    reader.readAsText(file);
+  }
   
   // 绑定导入导出按钮事件
   const exportDataBtn = document.getElementById('exportDataBtn');
   const importDataBtn = document.getElementById('importDataBtn');
   const importFileInput = document.getElementById('importFileInput');
   const exportDataDropdown = exportDataBtn?.closest('.dropdown')?.querySelector('.dropdown-content');
+  const importDataDropdown = importDataBtn?.closest('.dropdown')?.querySelector('.dropdown-content');
   
   if (exportDataBtn) {
     exportDataBtn.addEventListener('click', (e) => {
       e.stopPropagation();
       if (groupJumpDropdown) groupJumpDropdown.classList.remove("show");
       if (htmlDropdown) htmlDropdown.classList.remove("show");
+      importDataDropdown?.classList.remove('show');
       exportDataDropdown?.classList.toggle('show');
     });
   }
@@ -4106,15 +4249,38 @@ document.addEventListener("DOMContentLoaded", () => {
   });
   
   if (importDataBtn) {
-    importDataBtn.addEventListener('click', () => {
-      importFileInput.click();
+    importDataBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      if (groupJumpDropdown) groupJumpDropdown.classList.remove("show");
+      if (htmlDropdown) htmlDropdown.classList.remove("show");
+      exportDataDropdown?.classList.remove('show');
+      importDataDropdown?.classList.toggle('show');
     });
   }
+
+  document.getElementById('importCollectorJson')?.addEventListener('click', (e) => {
+    e.preventDefault();
+    pendingImportType = 'collector';
+    importDataDropdown?.classList.remove('show');
+    importFileInput?.click();
+  });
+
+  document.getElementById('importUtagsJson')?.addEventListener('click', (e) => {
+    e.preventDefault();
+    pendingImportType = 'utags';
+    importDataDropdown?.classList.remove('show');
+    importFileInput?.click();
+  });
   
   if (importFileInput) {
     importFileInput.addEventListener('change', (e) => {
       if (e.target.files.length > 0) {
-        importData(e.target.files[0]);
+        if (pendingImportType === 'utags') {
+          importUtagsData(e.target.files[0]);
+        } else {
+          importData(e.target.files[0]);
+        }
+        pendingImportType = 'collector';
         e.target.value = ''; // 重置input
       }
     });
@@ -4385,6 +4551,13 @@ document.addEventListener("DOMContentLoaded", () => {
         .view-button { padding: 10px 12px; border: 1px solid #ddd; border-radius: 4px; background: white; cursor: pointer; font-size: 13px; text-align: left; }
         .view-button:hover { background: #f5f5f5; }
         .view-button.active { background: #2196F3; color: white; border-color: #2196F3; }
+        .side-toggle { margin-top: 6px; padding-top: 12px; border-top: 1px solid #e3e7eb; }
+        .side-toggle-button { width: 100%; padding: 10px 12px; border: 1px solid #bbdefb; border-radius: 4px; background: #e3f2fd; color: #0d47a1; cursor: pointer; font-size: 13px; text-align: left; line-height: 1.35; }
+        .side-toggle-button.is-off { border-color: #ddd; background: #f5f5f5; color: #666; }
+        .side-toggle-status { display: block; margin-top: 4px; font-size: 12px; font-weight: 700; }
+        .side-toggle-label { display: block; margin-top: 10px; color: #555; font-size: 12px; font-weight: 700; }
+        .side-toggle-input { width: 100%; box-sizing: border-box; margin-top: 5px; padding: 8px 10px; border: 1px solid #ddd; border-radius: 4px; font-size: 13px; outline: none; }
+        .side-toggle-input:focus { border-color: #2196F3; box-shadow: 0 0 0 2px rgba(33,150,243,0.12); }
         .tabs-container { background: #fff; padding: 20px; border-radius: 8px; }
         .tab-entry { padding: 15px; border: 2px solid #e3e7eb; border-radius: 6px; margin-bottom: 8px; display: flex; align-items: flex-start; gap: 12px; transition: background 0.2s, border-color 0.2s, box-shadow 0.2s; }
         .tab-entry:hover { background: #f9f9f9; border-color: #4a90e2; box-shadow: 0 0 0 1px #4a90e2; }
@@ -4554,6 +4727,14 @@ document.addEventListener("DOMContentLoaded", () => {
         <button class="view-button" data-view="byDownloaded" style="border-left: 4px solid #4CAF50;">✓ 已下载</button>
         <button class="view-button" data-view="byNotDownloaded" style="border-left: 4px solid #F44336;">✗ 未下载</button>
         <button class="view-button" data-view="byUnchecked" style="border-left: 4px solid #9E9E9E;">⚪ 未勾选</button>
+        <div class="side-toggle">
+          <button type="button" class="side-toggle-button" id="utagsLinkToggleBtn" onclick="window.toggleUtagsLinking()">
+            HTML联动UT标签
+            <span class="side-toggle-status" id="utagsLinkToggleStatus">关闭</span>
+          </button>
+          <label class="side-toggle-label" for="utagsLinkTagInput">联动标签</label>
+          <input class="side-toggle-input" id="utagsLinkTagInput" type="text" value="E脚本下载" placeholder="例如: 已下载" oninput="window.updateUtagsLinkTag(this.value)">
+        </div>
       </div>
       <div class="views">
         <div class="tabs-container active" id="recent">
@@ -4602,12 +4783,49 @@ document.addEventListener("DOMContentLoaded", () => {
       <script>
         const STORAGE_KEY = 'tabSaverVisitedLinks';
         const MARKERS_STORAGE_KEY = 'tabSaverMarkers';
+        const UTAGS_LINKING_STORAGE_KEY = 'tabSaverUtagsLinkingEnabled';
+        const UTAGS_LINK_TAG_STORAGE_KEY = 'tabSaverUtagsLinkTag';
         const ALL_TABS_DATA = ${ALL_TABS_JSON};
         const ALL_SNAPSHOTS_DATA = ${ALL_SNAPSHOTS_JSON};
         const ALL_GROUPS_DATA = ${ALL_GROUPS_JSON};
         let currentSortOrder = 'desc'; // 'desc' = 新→旧(默认), 'asc' = 旧→新
         let currentPageSortOrder = 'off'; // 'off' = 关闭, 'asc' = 少→多, 'desc' = 多→少
         let isThumbMode = false;
+
+        const DEFAULT_DOWNLOADED_UTAG = 'E脚本下载';
+        let utagsLinkingEnabled = localStorage.getItem(UTAGS_LINKING_STORAGE_KEY) === '1';
+
+        function getDownloadedUtag() {
+          const input = document.getElementById('utagsLinkTagInput');
+          return String(input?.value || localStorage.getItem(UTAGS_LINK_TAG_STORAGE_KEY) || DEFAULT_DOWNLOADED_UTAG).trim() || DEFAULT_DOWNLOADED_UTAG;
+        }
+
+        function updateUtagsLinkToggleUI() {
+          const btn = document.getElementById('utagsLinkToggleBtn');
+          const status = document.getElementById('utagsLinkToggleStatus');
+          const input = document.getElementById('utagsLinkTagInput');
+          if (btn) {
+            btn.classList.toggle('is-off', !utagsLinkingEnabled);
+            btn.title = utagsLinkingEnabled ? '已下载/未下载会自动联动 UTags 标签' : '只修改 HTML 下载标记，不联动 UTags 标签';
+          }
+          if (status) status.textContent = utagsLinkingEnabled ? '开启' : '关闭';
+          if (input) input.value = getDownloadedUtag();
+        }
+
+        window.toggleUtagsLinking = () => {
+          utagsLinkingEnabled = !utagsLinkingEnabled;
+          localStorage.setItem(UTAGS_LINKING_STORAGE_KEY, utagsLinkingEnabled ? '1' : '0');
+          updateUtagsLinkToggleUI();
+        };
+
+        window.updateUtagsLinkTag = (value) => {
+          const tag = String(value || '').trim();
+          if (tag) {
+            localStorage.setItem(UTAGS_LINK_TAG_STORAGE_KEY, tag);
+          } else {
+            localStorage.removeItem(UTAGS_LINK_TAG_STORAGE_KEY);
+          }
+        };
 
         window.toggleThumbMode = () => {
           isThumbMode = !isThumbMode;
@@ -4642,6 +4860,44 @@ document.addEventListener("DOMContentLoaded", () => {
         const getPageCountValue = (link) => {
           const value = Number(link && link.pageCount);
           return Number.isInteger(value) && value > 0 ? value : 0;
+        };
+        const splitUtagsText = (value) => String(value || '').split(',').map(t => t.trim()).filter(Boolean);
+        const findUtagsCaptainButton = (entry) => {
+          if (!entry) return null;
+          const localButton = entry.querySelector('button[data-utags_key][data-utags_tags], .utags_captain_tag[data-utags_key], .utags_captain_tag2[data-utags_key]');
+          if (localButton) return localButton;
+          const url = entry.dataset.url;
+          if (!url) return null;
+          return Array.from(document.querySelectorAll('button[data-utags_key][data-utags_tags], .utags_captain_tag[data-utags_key], .utags_captain_tag2[data-utags_key]'))
+            .find(button => button.dataset.utags_key === url || button.closest('.tab-entry')?.dataset.url === url) || null;
+        };
+        const clickUtagsPromptOk = (attempt = 0) => {
+          const prompt = document.querySelector('.utags_prompt');
+          const okButton = prompt?.querySelector('.utags_primary');
+          if (okButton) {
+            okButton.click();
+            return;
+          }
+          if (attempt < 40) setTimeout(() => clickUtagsPromptOk(attempt + 1), 50);
+        };
+        const setDownloadedUtag = (entry, enabled, tagName, attempt = 0) => {
+          if (!utagsLinkingEnabled) return;
+          const downloadedTag = String(tagName || getDownloadedUtag()).trim();
+          if (!downloadedTag) return;
+          const button = findUtagsCaptainButton(entry);
+          if (!button) {
+            if (attempt < 40) setTimeout(() => setDownloadedUtag(entry, enabled, downloadedTag, attempt + 1), 50);
+            return;
+          }
+          const tags = splitUtagsText(button.dataset.utags_tags);
+          const hasTag = tags.includes(downloadedTag);
+          if (enabled && hasTag) return;
+          if (!enabled && !hasTag) return;
+          button.dataset.utags_tags = enabled
+            ? [...tags, downloadedTag].join(', ')
+            : tags.filter(tag => tag !== downloadedTag).join(', ');
+          button.click();
+          clickUtagsPromptOk();
         };
 
         window.recordVisit = (el) => {
@@ -4700,7 +4956,21 @@ document.addEventListener("DOMContentLoaded", () => {
             markers[markerKey][otherType] = false;
           }
 
+          const linkedUtag = getDownloadedUtag();
+          const previousLinkedUtag = markers[markerKey].utagsLinkedTag || linkedUtag;
           markers[markerKey][type] = cb.checked;
+          if (type === 'downloaded') {
+            if (cb.checked) {
+              markers[markerKey].utagsLinkedTag = linkedUtag;
+              setDownloadedUtag(tabEntry, true, linkedUtag);
+            } else {
+              delete markers[markerKey].utagsLinkedTag;
+              setDownloadedUtag(tabEntry, false, previousLinkedUtag);
+            }
+          } else if (type === 'skipped' && cb.checked) {
+            delete markers[markerKey].utagsLinkedTag;
+            setDownloadedUtag(tabEntry, false, previousLinkedUtag);
+          }
           localStorage.setItem(MARKERS_STORAGE_KEY, JSON.stringify(markers));
 
           // 只同步当前条目本身，以及它对应的详情卡片
@@ -5604,6 +5874,7 @@ document.addEventListener("DOMContentLoaded", () => {
           applyState();
           window.hydrateSnapshots();
           updateExportSortButtons();
+          updateUtagsLinkToggleUI();
           // 恢复缩略图模式
           if (localStorage.getItem('exportThumbMode') === '1') {
             isThumbMode = true;
@@ -6476,7 +6747,7 @@ document.addEventListener("DOMContentLoaded", () => {
         });
       }
 
-      modal.querySelectorAll('.preview-detail-card .link-tag').forEach(tagEl => {
+      modal.querySelectorAll('.preview-detail-card .link-tag, .preview-detail-card .utags-tag').forEach(tagEl => {
         bindTagAction(tagEl);
       });
 
