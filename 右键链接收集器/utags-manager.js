@@ -1151,12 +1151,41 @@ function renderAll() {
   renderDetail();
 }
 
+function getTagUsageCount(tagName) {
+  const target = String(tagName || '').trim();
+  if (!target) return 0;
+  let count = 0;
+  for (const entry of Object.values(getData())) {
+    if (normalizeTags(entry?.tags).includes(target)) count++;
+  }
+  return count;
+}
+
+function getMergedTagUsageCount(fromTag, toTag) {
+  const from = String(fromTag || '').trim();
+  const to = String(toTag || '').trim();
+  const urls = new Set();
+  for (const [url, entry] of Object.entries(getData())) {
+    const tags = normalizeTags(entry?.tags);
+    if (tags.includes(from) || tags.includes(to)) {
+      urls.add(url);
+    }
+  }
+  return urls.size;
+}
+
 function renameTag(oldTag) {
   const currentTag = String(oldTag || '').trim();
   if (!currentTag) return;
   const newTag = prompt('输入新的标签名', currentTag)?.trim();
   if (!newTag || currentTag === newTag) return;
-  if (!confirm(`确定把标签「${currentTag}」重命名为「${newTag}」吗？`)) return;
+  const currentCount = getTagUsageCount(currentTag);
+  const targetCount = getTagUsageCount(newTag);
+  const mergedCount = getMergedTagUsageCount(currentTag, newTag);
+  const confirmText = targetCount > 0
+    ? `标签「${currentTag}」当前有 ${currentCount} 个 URL。\n标签「${newTag}」已存在，当前有 ${targetCount} 个 URL。\n合并后「${newTag}」将有 ${mergedCount} 个 URL。\n\n确定把「${currentTag}」重命名并合并到已有标签「${newTag}」吗？`
+    : `标签「${currentTag}」当前有 ${currentCount} 个 URL。\n标签「${newTag}」当前不存在。\n\n确定把「${currentTag}」重命名为「${newTag}」吗？`;
+  if (!confirm(confirmText)) return;
 
   for (const entry of Object.values(getData())) {
     const tags = normalizeTags(entry?.tags);
