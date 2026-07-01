@@ -342,7 +342,7 @@ function updateBadge() {
     const links = Array.isArray(res.links) ? res.links : [];
     const count = links.length;
     if (count > 0) {
-      chrome.action.setBadgeText({ text: String(Math.min(999, count)) });
+      chrome.action.setBadgeText({ text: count > 9999 ? '999+' : String(count) });
       chrome.action.setBadgeBackgroundColor({ color: '#2196F3' });
       chrome.action.setBadgeTextColor({ color: '#FFFFFF' });
     } else {
