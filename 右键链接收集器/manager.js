@@ -4717,6 +4717,11 @@ document.addEventListener("DOMContentLoaded", () => {
         .side-toggle-label { display: block; margin-top: 10px; color: #555; font-size: 12px; font-weight: 700; }
         .side-toggle-input { width: 100%; box-sizing: border-box; margin-top: 5px; padding: 8px 10px; border: 1px solid #ddd; border-radius: 4px; font-size: 13px; outline: none; }
         .side-toggle-input:focus { border-color: #2196F3; box-shadow: 0 0 0 2px rgba(33,150,243,0.12); }
+        .side-marker-stats { margin-top: 12px; padding-top: 12px; border-top: 1px solid #e3e7eb; font-size: 13px; }
+        .side-marker-stats-total { font-weight: 700; color: #333; margin-bottom: 6px; }
+        .side-marker-stats-row { color: #555; line-height: 1.8; }
+        .side-dl-count { color: #4CAF50; font-weight: 700; }
+        .side-sk-count { color: #F44336; font-weight: 700; }
         .tabs-container { background: #fff; padding: 20px; border-radius: 8px; }
         .tab-entry { padding: 15px; border: 2px solid #e3e7eb; border-radius: 6px; margin-bottom: 8px; display: flex; align-items: flex-start; gap: 12px; transition: background 0.2s, border-color 0.2s, box-shadow 0.2s; }
         .tab-entry:hover { background: #f9f9f9; border-color: #4a90e2; box-shadow: 0 0 0 1px #4a90e2; }
@@ -4893,6 +4898,11 @@ document.addEventListener("DOMContentLoaded", () => {
           </button>
           <label class="side-toggle-label" for="utagsLinkTagInput">联动标签</label>
           <input class="side-toggle-input" id="utagsLinkTagInput" type="text" value="E脚本下载" placeholder="例如: 已下载" oninput="window.updateUtagsLinkTag(this.value)">
+        </div>
+        <div class="side-marker-stats" id="sideMarkerStats">
+          <div class="side-marker-stats-total">共<span id="sideTotalCount">${tabCount}</span>个链接</div>
+          <div class="side-marker-stats-row">已下载「<span class="side-dl-count" id="sideDlCount">00</span>」</div>
+          <div class="side-marker-stats-row">未下载「<span class="side-sk-count" id="sideSkCount">00</span>」</div>
         </div>
       </div>
       <div class="views">
@@ -5143,6 +5153,7 @@ document.addEventListener("DOMContentLoaded", () => {
             entry.classList.toggle('marker-skipped-active', !!markers[markerKey].skipped);
           });
           updateGroupMarkerStats();
+          updateSideMarkerStats();
         };
 
         window.clearMarkers = () => {
@@ -5153,8 +5164,30 @@ document.addEventListener("DOMContentLoaded", () => {
               e.classList.remove('marker-downloaded-active', 'marker-skipped-active');
             });
             updateGroupMarkerStats();
+            updateSideMarkerStats();
           }
         };
+
+        function updateSideMarkerStats() {
+          const sideStats = document.getElementById('sideMarkerStats');
+          if (!sideStats) return;
+          const markers = getMarkers();
+          const total = ALL_TABS_DATA.length;
+          let dl = 0, sk = 0;
+          ALL_TABS_DATA.forEach(t => {
+            const markerKey = getMarkerKey(t);
+            if (markerKey && markers[markerKey]) {
+              if (markers[markerKey].downloaded) dl++;
+              if (markers[markerKey].skipped) sk++;
+            }
+          });
+          const totalEl = document.getElementById('sideTotalCount');
+          const dlEl = document.getElementById('sideDlCount');
+          const skEl = document.getElementById('sideSkCount');
+          if (totalEl) totalEl.textContent = total;
+          if (dlEl) dlEl.textContent = String(dl).padStart(2, '0');
+          if (skEl) skEl.textContent = String(sk).padStart(2, '0');
+        }
 
         function updateGroupMarkerStats() {
           document.querySelectorAll('.tab-group').forEach(group => {
@@ -5998,6 +6031,7 @@ document.addEventListener("DOMContentLoaded", () => {
             }
           });
           updateGroupMarkerStats();
+          updateSideMarkerStats();
         }
 
         document.querySelectorAll('.view-button').forEach(btn => {
