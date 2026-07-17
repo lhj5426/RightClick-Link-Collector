@@ -4476,7 +4476,11 @@ document.addEventListener("DOMContentLoaded", () => {
     function generateTabEntry(link, index, inlineSnapshot = false) {
       const saveTime = link.date ? `<div class="tab-save-time">保存时间: ${escapeHtml(link.date)}</div>` : '';
       const pageCountText = getPageCountText(link);
-      const pageCountDisplay = pageCountText ? `<div class="tab-page-count">页数: ${escapeHtml(pageCountText)}</div>` : '';
+      const pageCountValue = getPageCountValue(link);
+      const batchN = pageCountValue > 600 ? 8 : pageCountValue > 350 ? 4 : pageCountValue > 250 ? 2 : 1;
+      const pageCountDisplay = pageCountText
+        ? `<div class="tab-page-count">页数: ${escapeHtml(pageCountText)} <span class="open-link-btn-inline" role="button" onclick="window.openLinkByBatch(this)" title="按页数规则自动开 N 个标签 (autoBatchDivide)">打开${batchN}个标签</span></div>`
+        : `<div class="tab-page-count"><span class="open-link-btn-inline" role="button" onclick="window.openLinkByBatch(this)" title="打开当前链接">打开</span></div>`;
       
       let tagsDisplay = '';
       if (link.tags && link.tags.length > 0) {
@@ -4540,7 +4544,11 @@ document.addEventListener("DOMContentLoaded", () => {
     function generateThumbnailEntry(link, index) {
       const snapshotData = includeSnapshots ? snapshots[link.id] : '';
       const pageCountText = getPageCountText(link);
-      const pageCountDisplay = pageCountText ? `<span class="thumb-page-count">页数: ${escapeHtml(pageCountText)}</span>` : '';
+      const pageCountValue = getPageCountValue(link);
+      const batchN = pageCountValue > 600 ? 8 : pageCountValue > 350 ? 4 : pageCountValue > 250 ? 2 : 1;
+      const pageCountDisplay = pageCountText
+        ? `<span class="thumb-page-count">页数: ${escapeHtml(pageCountText)} <span class="open-link-btn-inline" role="button" onclick="window.openLinkByBatch(this)" title="按页数规则自动开 N 个标签 (autoBatchDivide)">打开${batchN}个标签</span></span>`
+        : `<span class="thumb-page-count"><span class="open-link-btn-inline" role="button" onclick="window.openLinkByBatch(this)" title="打开当前链接">打开</span></span>`;
       const saveTime = link.date ? `<span class="thumb-save-time">${escapeHtml(link.date)}</span>` : '';
       const sourceText = escapeHtml(link.title || link.page || '未知');
       let markerHTML = '';
@@ -4737,8 +4745,11 @@ document.addEventListener("DOMContentLoaded", () => {
         .tab-url.expanded { max-height: 500px; margin-top: 4px; padding: 6px 8px; }
         .tab-url-toggle { color: #2196F3; font-size: 0.85em; cursor: pointer; user-select: none; display: inline-block; background: #FFFFFF; padding: 3px 8px; border-radius: 4px; }
         .tab-url-toggle:hover { text-decoration: underline; }
-        .tab-save-time, .link-date { color: #555; font-size: 0.8em; margin-top: 4px; background: #E8F5E9; padding: 3px 8px; border-radius: 4px; display: inline-block; }
-        .tab-page-count { color: #5b6ee1; font-size: 16px; margin-top: 4px; font-weight: 600; background: #FFEBEE; padding: 4px 8px; border-radius: 4px; display: inline-block; }
+        .tab-save-time, .link-date { color: #555; font-size: 0.8em; margin-top: 4px; background: #E8F5E9; padding: 3px 8px; border-radius: 4px; display: inline-block; vertical-align: middle; line-height: 1.4; }
+        .tab-page-count { color: #5b6ee1; font-size: 16px; margin-top: 4px; font-weight: 600; background: #FFEBEE; padding: 4px 8px; border-radius: 4px; display: inline-block; vertical-align: middle; line-height: 1.4; }
+        .open-link-btn-inline { display: inline-block; margin-left: 6px; padding: 1px 8px; background: #2196F3; color: #fff; border: none; border-radius: 3px; cursor: pointer; font-size: 16px; font-weight: 600; vertical-align: baseline; line-height: 1.4; user-select: none; -webkit-user-select: none; transition: background 0.15s; }
+        .open-link-btn-inline:hover { background: #1976D2; }
+        .open-link-btn-inline:active { background: #0D47A1; }
         .tab-note { color: #333; font-size: 0.85em; background: #FFF3E0; padding: 6px 10px; border-radius: 4px; margin-top: 6px; border-left: 3px solid #FF9800; }
         .visit-info { display: none; gap: 15px; font-size: 0.8em; margin-top: 6px; font-style: italic; color: #333; background: #FFEBEE; padding: 4px 8px; border-radius: 4px; }
         .visit-info.has-content { display: inline-flex; }
@@ -4857,7 +4868,7 @@ document.addEventListener("DOMContentLoaded", () => {
           <button class="button" style="background:#FF9800" onclick="window.toggleAllUrls()">一键展开所有来源</button>
           <button class="button" style="background:#673AB7" onclick="window.toggleAllGroups()">折叠/展开分组</button>
           <button class="button" style="background:#00BCD4" id="sortOrderBtn" onclick="window.toggleSortOrder()">排序: 新→旧</button>
-          <button class="button" style="background:#3F51B5" id="pageSortOrderBtn" onclick="window.togglePageSortOrder()">页数排序: 关闭</button>
+          <button class="button" style="background:#3F51B5" id="pageSortOrderBtn" onclick="window.togglePageSortOrder()">页数排序: 多→少</button>
           <button class="button" style="background:#9C27B0" onclick="window.clearMarkers()">清除下载标记</button>
           <button class="button" style="background:#F44336" onclick="window.clearVisitHistory()">清除访问历史</button>
           <button class="button" style="background:#9C27B0" id="thumbModeToggleBtn" onclick="window.toggleThumbMode()">🖼 缩略图关</button>
@@ -4881,9 +4892,9 @@ document.addEventListener("DOMContentLoaded", () => {
         </div>
       </div>
       <div class="view-controls">
-        <button class="view-button active" data-view="recent">最新</button>
+        <button class="view-button" data-view="recent">最新</button>
         <button class="view-button" data-view="bySaveTime">按保存时间分组</button>
-        <button class="view-button" data-view="byCustomGroup">按自定义分组</button>
+        <button class="view-button active" data-view="byCustomGroup">按自定义分组</button>
         <button class="view-button" data-view="byTabGroup">按标签组</button>
         <button class="view-button" data-view="byRulesUnvisited">未访问(聚合)</button>
         <button class="view-button" data-view="byRulesUnvisitedInGroup">未访问(组内)</button>
@@ -4901,17 +4912,19 @@ document.addEventListener("DOMContentLoaded", () => {
         </div>
         <div class="side-marker-stats" id="sideMarkerStats">
           <div class="side-marker-stats-total">共<span id="sideTotalCount">${tabCount}</span>个链接</div>
+          <div class="side-marker-stats-row">已点击「<span id="sideClickedCount">00</span>」</div>
+          <div class="side-marker-stats-row">剩余数「<span id="sideRemainingCount">00</span>」</div>
           <div class="side-marker-stats-row">已下载「<span class="side-dl-count" id="sideDlCount">00</span>」</div>
           <div class="side-marker-stats-row">未下载「<span class="side-sk-count" id="sideSkCount">00</span>」</div>
         </div>
       </div>
       <div class="views">
-        <div class="tabs-container active" id="recent">
+        <div class="tabs-container" id="recent">
           <div class="list-content">${links.map((link, i) => generateTabEntry(link, i + 1, true)).join('')}</div>
           <div class="thumb-content"><div class="export-thumb-grid">${links.map((link, i) => generateThumbnailEntry(link, i + 1)).join('')}</div></div>
         </div>
         <div class="tabs-container" id="bySaveTime">${bySaveTimeHTML}</div>
-        <div class="tabs-container" id="byCustomGroup">${customGroupsHTML}</div>
+        <div class="tabs-container active" id="byCustomGroup">${customGroupsHTML}</div>
         <div class="tabs-container" id="byTabGroup">
           <div class="tab-group">
             <div class="group-header" onclick="window.toggleGroup(this)">
@@ -4950,15 +4963,22 @@ document.addEventListener("DOMContentLoaded", () => {
       <div id="previewModal" class="exp-preview-modal"></div>
 
       <script>
-        const STORAGE_KEY = 'tabSaverVisitedLinks';
         const MARKERS_STORAGE_KEY = 'tabSaverMarkers';
         const UTAGS_LINKING_STORAGE_KEY = 'tabSaverUtagsLinkingEnabled';
         const UTAGS_LINK_TAG_STORAGE_KEY = 'tabSaverUtagsLinkTag';
         const ALL_TABS_DATA = ${ALL_TABS_JSON};
         const ALL_SNAPSHOTS_DATA = ${ALL_SNAPSHOTS_JSON};
         const ALL_GROUPS_DATA = ${ALL_GROUPS_JSON};
+        // 根据当前页面的链接列表 + 文件路径生成唯一 key, 不同导出的 HTML 互不干扰
+        const _urlHash = ((urls, seed) => {
+          const sorted = urls.map(l => l.url || '').sort().join('|') + '|' + seed;
+          let h = 5381;
+          for (let i = 0; i < sorted.length; i++) h = ((h << 5) + h + sorted.charCodeAt(i)) | 0;
+          return Math.abs(h).toString(36);
+        })(ALL_TABS_DATA, location.pathname);
+        const STORAGE_KEY = 'tabSaverVisitedLinks_' + _urlHash;
         let currentSortOrder = 'desc'; // 'desc' = 新→旧(默认), 'asc' = 旧→新
-        let currentPageSortOrder = 'off'; // 'off' = 关闭, 'asc' = 少→多, 'desc' = 多→少
+        let currentPageSortOrder = 'desc'; // 'off' = 关闭, 'asc' = 少→多, 'desc' = 多→少(默认)
         let isThumbMode = false;
 
         const DEFAULT_DOWNLOADED_UTAG = 'E脚本下载';
@@ -5065,8 +5085,12 @@ document.addEventListener("DOMContentLoaded", () => {
           button.dataset.utags_tags = enabled
             ? [...tags, downloadedTag].join(', ')
             : tags.filter(tag => tag !== downloadedTag).join(', ');
+
+          // UTags popup 会搅乱滚动位置, 先保存
+          const scrollX = window.scrollX, scrollY = window.scrollY;
           button.click();
           clickUtagsPromptOk();
+          setTimeout(() => { window.scrollTo(scrollX, scrollY); }, 100);
         };
 
         window.recordVisit = (el) => {
@@ -5082,6 +5106,7 @@ document.addEventListener("DOMContentLoaded", () => {
               updateVisitInfo(entry, data);
             }
           });
+          updateSideMarkerStats();
         };
 
         const updateVisitInfo = (el, data) => {
@@ -5172,6 +5197,7 @@ document.addEventListener("DOMContentLoaded", () => {
           const sideStats = document.getElementById('sideMarkerStats');
           if (!sideStats) return;
           const markers = getMarkers();
+          const visited = getVisitedLinks();
           const total = ALL_TABS_DATA.length;
           let dl = 0, sk = 0;
           ALL_TABS_DATA.forEach(t => {
@@ -5181,10 +5207,16 @@ document.addEventListener("DOMContentLoaded", () => {
               if (markers[markerKey].skipped) sk++;
             }
           });
+          const clicked = Object.keys(visited).filter(url => url && visited[url] && visited[url].count > 0 && ALL_TABS_DATA.some(t => t.url === url)).length;
+          const remaining = total - clicked;
           const totalEl = document.getElementById('sideTotalCount');
+          const clickedEl = document.getElementById('sideClickedCount');
+          const remainingEl = document.getElementById('sideRemainingCount');
           const dlEl = document.getElementById('sideDlCount');
           const skEl = document.getElementById('sideSkCount');
           if (totalEl) totalEl.textContent = total;
+          if (clickedEl) clickedEl.textContent = String(clicked).padStart(2, '0');
+          if (remainingEl) remainingEl.textContent = String(Math.max(0, remaining)).padStart(2, '0');
           if (dlEl) dlEl.textContent = String(dl).padStart(2, '0');
           if (skEl) skEl.textContent = String(sk).padStart(2, '0');
         }
@@ -5227,6 +5259,7 @@ document.addEventListener("DOMContentLoaded", () => {
             document.querySelectorAll('.tab-entry').forEach(entry => {
               for (let i = 1; i <= 7; i++) entry.classList.remove('link-clicked-' + i);
             });
+            updateSideMarkerStats();
           }
         };
 
@@ -5323,10 +5356,33 @@ document.addEventListener("DOMContentLoaded", () => {
           }
           entries.forEach(e => {
             if (!e.classList || !e.classList.contains('hidden')) {
-              window.open(e.dataset.url, '_blank');
+              window.open(e.dataset.url, '_blank', 'noopener,noreferrer');
               window.recordVisit(e);
             }
           });
+        };
+
+        // AI 魔改：根据页数自动计算默认批次数
+        // > 600 → 8 批次；350 < x ≤ 600 → 4 批次；250 < x ≤ 350 → 2 批次；≤ 250 → 1 批次
+        window.autoBatchDivide = (pages) => {
+          if (pages > 600) return 8;
+          if (pages > 350) return 4;
+          if (pages > 250) return 2;
+          return 1;
+        };
+
+        // 单卡片按规则批量开标签
+        window.openLinkByBatch = (btn) => {
+          const entry = btn.closest('.tab-entry');
+          if (!entry) return;
+          const url = entry.dataset.url;
+          if (!url) return;
+          const pages = parseInt(entry.dataset.pageCount, 10) || 0;
+          const n = window.autoBatchDivide(pages);
+          for (let i = 0; i < n; i++) {
+            window.open(url, '_blank', 'noopener,noreferrer');
+          }
+          if (typeof window.recordVisit === 'function') window.recordVisit(entry);
         };
 
         window.toggleAllUrls = () => {
@@ -5686,7 +5742,10 @@ document.addEventListener("DOMContentLoaded", () => {
             .replace(/'/g, '&#39;');
           const saveTime = link.date ? '<div class="tab-save-time">保存时间: ' + escapeText(link.date) + '</div>' : '';
           const pageCount = getPageCountValue(link);
-          const pageCountDisplay = pageCount > 0 ? '<div class="tab-page-count">页数: ' + pageCount + ' 页</div>' : '';
+          const batchN = pageCount > 600 ? 8 : pageCount > 350 ? 4 : pageCount > 250 ? 2 : 1;
+          const pageCountDisplay = pageCount > 0
+            ? '<div class="tab-page-count">页数: ' + pageCount + ' 页 <span class="open-link-btn-inline" role="button" onclick="window.openLinkByBatch(this)" title="按页数规则自动开 N 个标签 (autoBatchDivide)">打开' + batchN + '个标签</span></div>'
+            : '<div class="tab-page-count"><span class="open-link-btn-inline" role="button" onclick="window.openLinkByBatch(this)" title="打开当前链接">打开</span></div>';
           
           let tagsDisplay = '';
           if (link.tags && link.tags.length > 0) {
@@ -5735,7 +5794,10 @@ document.addEventListener("DOMContentLoaded", () => {
             .replace(/'/g, '&#39;');
           const snapshotData = ALL_SNAPSHOTS_DATA[link.id];
           const pageCount = getPageCountValue(link);
-          const pageCountDisplay = pageCount > 0 ? '<span class="thumb-page-count">页数: ' + pageCount + ' 页</span>' : '';
+          const batchN = pageCount > 600 ? 8 : pageCount > 350 ? 4 : pageCount > 250 ? 2 : 1;
+          const pageCountDisplay = pageCount > 0
+            ? '<span class="thumb-page-count">页数: ' + pageCount + ' 页 <span class="open-link-btn-inline" role="button" onclick="window.openLinkByBatch(this)" title="按页数规则自动开 N 个标签 (autoBatchDivide)">打开' + batchN + '个标签</span></span>'
+            : '<span class="thumb-page-count"><span class="open-link-btn-inline" role="button" onclick="window.openLinkByBatch(this)" title="打开当前链接">打开</span></span>';
           const saveTime = link.date ? '<span class="thumb-save-time">' + escapeText(link.date) + '</span>' : '';
           let markerHTML = '';
           if (snapshotData && link.clickPoint) {
@@ -5966,7 +6028,8 @@ document.addEventListener("DOMContentLoaded", () => {
         }
 
         function regenerateByTagsView() {
-          const container = document.getElementById('byNote');
+          const container = document.getElementById('byTabGroup');
+          if (!container) return;
           const tagMap = new Map();
           const withoutTags = [];
           
@@ -6051,6 +6114,8 @@ document.addEventListener("DOMContentLoaded", () => {
               regenerateUnvisitedView();
             } else if (btn.dataset.view === 'byRulesUnvisitedInGroup') {
               regenerateUnvisitedInGroupView();
+            } else if (btn.dataset.view === 'byTabGroup') {
+              regenerateByTagsView();
             } else if (btn.dataset.view === 'byDownloaded') {
               regenerateByMarker('Downloaded');
             } else if (btn.dataset.view === 'byNotDownloaded') {
@@ -6068,6 +6133,9 @@ document.addEventListener("DOMContentLoaded", () => {
           window.hydrateSnapshots();
           updateExportSortButtons();
           updateUtagsLinkToggleUI();
+          updateSideMarkerStats();
+          // 应用默认页数排序（多→少）
+          resortActiveView();
           // 恢复缩略图模式
           if (localStorage.getItem('exportThumbMode') === '1') {
             isThumbMode = true;
