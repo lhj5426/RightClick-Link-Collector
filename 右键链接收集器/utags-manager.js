@@ -254,11 +254,12 @@ function getSelectedTagUrls() {
     const tags = normalizeTags(entry?.tags);
     const title = String(entry?.meta?.title || entry?.title || '').trim();
     const timeText = formatEntryTime(entry);
+    const timeValue = getEntryTime(entry);
     if (sideMode === 'tag' && !tags.includes(selectedTag)) continue;
     if (sideMode === 'domain' && getDomainFromUrl(url) !== selectedDomain) continue;
-    rows.push({ url, title, timeText, tags });
+    rows.push({ url, title, timeText, timeValue, tags });
   }
-  rows.sort((a, b) => (a.title || a.url).localeCompare(b.title || b.url, 'zh-Hans-CN'));
+  rows.sort(compareRows);
   return rows;
 }
 
@@ -276,6 +277,14 @@ function getSearchFields(url, title, tags, timeText = '') {
     domain: getDomainFromUrl(url),
     time: timeText,
   };
+}
+
+// Sorting mode for URL lists. Possible values: 'time-desc', 'time-asc'
+let sortMode = 'time-desc';
+
+function compareRows(a, b) {
+  if (sortMode === 'time-asc') return (a.timeValue || 0) - (b.timeValue || 0) || (a.title || a.url).localeCompare(b.title || b.url, 'zh-Hans-CN');
+  return (b.timeValue || 0) - (a.timeValue || 0) || (a.title || a.url).localeCompare(b.title || b.url, 'zh-Hans-CN');
 }
 
 function normalizeSearchScope(value) {
@@ -398,7 +407,7 @@ function getGlobalSearchRows() {
   const keywords = parseSearchKeywords(els.globalSearchInput.value);
   if (keywords.length === 0) return [];
   return getAllRows(shouldSearchIncludeDeleted(keywords)).filter(row => matchesSearchKeywords(getSearchFields(row.url, row.title, row.tags, row.timeText), keywords))
-    .sort((a, b) => (a.title || a.url).localeCompare(b.title || b.url, 'zh-Hans-CN'));
+    .sort(compareRows);
 }
 
 function getAllRows(includeDeleted = false) {
@@ -408,9 +417,10 @@ function getAllRows(includeDeleted = false) {
     const tags = normalizeTags(entry?.tags);
     const title = String(entry?.meta?.title || entry?.title || '').trim();
     const timeText = formatEntryTime(entry);
-    rows.push({ url, title, timeText, tags });
+    const timeValue = getEntryTime(entry);
+    rows.push({ url, title, timeText, timeValue, tags });
   }
-  rows.sort((a, b) => (a.title || a.url).localeCompare(b.title || b.url, 'zh-Hans-CN'));
+  rows.sort(compareRows);
   return rows;
 }
 
@@ -1391,6 +1401,14 @@ function bindEvents() {
   els.batchClearTagsBtn.addEventListener('click', clearSelectedUrlTags);
   els.batchClearSelectionBtn.addEventListener('click', clearSelection);
   els.filterDuplicateBtn.addEventListener('click', toggleDuplicateFilter);
+  if (els.sortByTimeBtn) {
+    els.sortByTimeBtn.addEventListener('click', () => {
+      sortMode = sortMode === 'time-desc' ? 'time-asc' : 'time-desc';
+      els.sortByTimeBtn.textContent = sortMode === 'time-desc' ? '按保存时间（新→旧）' : '按保存时间（旧→新）';
+      selectedUrls.clear();
+      renderDetail();
+    });
+  }
   els.globalSearchInput.addEventListener('input', () => {
     selectedTag = '';
     selectedDomain = '';
@@ -1459,6 +1477,7 @@ document.addEventListener('DOMContentLoaded', () => {
     batchClearSelectionBtn: $('batchClearSelectionBtn'),
     urlSearchInput: $('urlSearchInput'),
     filterDuplicateBtn: $('filterDuplicateBtn'),
+    sortByTimeBtn: $('sortByTimeBtn'),
     paginationBar: $('paginationBar'),
     paginationBarBottom: $('paginationBarBottom'),
     urlList: $('urlList'),

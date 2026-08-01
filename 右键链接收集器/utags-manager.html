@@ -1,11 +1,13 @@
 <!DOCTYPE html>
 <html lang="zh-CN">
+
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>UT标签管理</title>
   <link rel="stylesheet" href="utags-manager.css">
 </head>
+
 <body>
   <div class="app-shell">
     <header class="topbar">
@@ -58,6 +60,7 @@
         <div class="url-toolbar">
           <input id="urlSearchInput" type="search" placeholder="在当前列表中搜索 URL / 标题 / 标签，例: 标签日期">
           <button id="filterDuplicateBtn" class="btn secondary" type="button">过滤重复</button>
+          <button id="sortByTimeBtn" class="btn secondary" type="button">按保存时间（新→旧）</button>
         </div>
         <div id="batchToolbar" class="batch-toolbar">
           <label class="batch-select-page">
@@ -80,4 +83,5 @@
 
   <script src="utags-manager.js"></script>
 </body>
+
 </html>
