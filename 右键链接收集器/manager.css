@@ -1923,7 +1923,6 @@ body.dark .download-option:hover {
   width: 0%;
   background: #2196F3;
   border-radius: 5px;
-  transition: width 0.2s ease;
 }
 .import-progress-detail {
   font-size: 11px;
@@ -2718,3 +2717,5 @@ body.preview-detail-lock {
   padding: 2px;
   cursor: pointer;
 }
+
+.import-progress-percent { margin-top: 6px; text-align: right; color: #555; font-size: 12px; font-variant-numeric: tabular-nums; }

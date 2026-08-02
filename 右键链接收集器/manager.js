@@ -4012,6 +4012,7 @@ document.addEventListener("DOMContentLoaded", () => {
             <div class="import-progress-bar-fill" id="importProgressBarFill" style="width: 0%"></div>
           </div>
           <div class="import-progress-detail" id="importProgressDetail"></div>
+          <div class="import-progress-percent" id="importProgressPercent">0%</div>
         </div>
       </div>
     `;
@@ -4022,9 +4023,12 @@ document.addEventListener("DOMContentLoaded", () => {
     const phaseEl = importProgressModal.querySelector('#importProgressPhase');
     const fillEl = importProgressModal.querySelector('#importProgressBarFill');
     const detailEl = importProgressModal.querySelector('#importProgressDetail');
+    const percentEl = importProgressModal.querySelector('#importProgressPercent');
+    const safePercent = Math.max(0, Math.min(100, Math.round(Number(percent) || 0)));
     if (phaseEl) phaseEl.textContent = phase;
-    if (fillEl) fillEl.style.width = percent + '%';
+    if (fillEl) fillEl.style.width = safePercent + '%';
     if (detailEl) detailEl.textContent = detail || '';
+    if (percentEl) percentEl.textContent = safePercent + '%';
   }
   function closeImportProgress() {
     if (importProgressModal) {
@@ -4099,41 +4103,110 @@ document.addEventListener("DOMContentLoaded", () => {
     } catch(err){console.error('JSON 导入失败:',err);closeImportProgress();alert(`导入失败：${err.message||err}`);}
   }
 
-  function importUtagsData(file) {
-    const reader = new FileReader();
-    reader.onload = (e) => {
-      try {
-        const data = JSON.parse(e.target.result);
-        const { bookmarks, importedCount } = normalizeImportedUtagsBookmarks(data);
-        const matchedCount = allLinks.filter(link => getUtagsUrlCandidates(link.url).some(key => bookmarks[key])).length;
+  function normalizeImportedUtagsBookmarks(data) {
+    const source = data && typeof data === 'object' && data.data && typeof data.data === 'object'
+      ? data.data
+      : data;
+    if (!source || typeof source !== 'object') {
+      throw new Error('无效的 UTags JSON：缺少 data 对象');
+    }
 
-        chrome.storage.local.set({
-          [UTAGS_BOOKMARKS_STORAGE_KEY]: bookmarks,
-          [UTAGS_FULL_JSON_STORAGE_KEY]: data,
-          [UTAGS_IMPORTED_AT_STORAGE_KEY]: new Date().toISOString(),
-          [UTAGS_DIRTY_STORAGE_KEY]: false,
-        }, () => {
-          utagsBookmarks = bookmarks;
-          renderLinks();
-          showLargeMessage('UTags JSON 导入完成', [
-            {
-              title: '导入结果',
-              lines: [
-                `UTags 条目：${importedCount}`,
-                `当前列表命中：${matchedCount}`,
-                '已保存为只读 UTags 标签索引，不会修改扩展自身标签。'
-              ]
-            }
-          ]);
-        });
-      } catch (err) {
-        console.error('UTags JSON 导入失败:', err);
-        alert('UTags JSON 导入失败：' + err.message);
-      }
-    };
-    reader.readAsText(file);
+    const result = {};
+    let importedCount = 0;
+    Object.entries(source).forEach(([url, entry]) => {
+      if (!entry || typeof entry !== 'object' || !Array.isArray(entry.tags)) return;
+      const tags = entry.tags.map(tag => String(tag || '').trim()).filter(Boolean);
+      if (tags.length === 0) return;
+
+      const compactEntry = {
+        tags: Array.from(new Set(tags)),
+      };
+
+      getUtagsUrlCandidates(url).forEach(key => {
+        if (key) result[key] = compactEntry;
+      });
+      importedCount++;
+    });
+
+    if (importedCount === 0) {
+      throw new Error('没有在 UTags JSON 中找到可用标签');
+    }
+
+    return { bookmarks: result, importedCount };
   }
-  
+
+  async function importUtagsData(file) {
+    const fileSizeMB = (file.size / 1024 / 1024).toFixed(1);
+    showImportProgress('正在导入 UTags JSON...');
+    updateImportProgress(`正在读取 UTags JSON (${fileSizeMB} MB)...`, 0, '');
+    try {
+      const reader = file.stream().getReader();
+      const decoder = new TextDecoder();
+      let text = '';
+      let loaded = 0;
+      while (true) {
+        const chunk = await reader.read();
+        if (chunk.done) break;
+        loaded += chunk.value.byteLength;
+        text += decoder.decode(chunk.value, { stream: true });
+        const percent = Math.min(100, Math.floor((loaded / Math.max(file.size, 1)) * 100));
+        updateImportProgress(`正在读取 UTags JSON...`, percent, `${Math.round((loaded / Math.max(file.size, 1)) * 100)}%`);
+        await new Promise(resolve => setTimeout(resolve, 0));
+      }
+      text += decoder.decode();
+      updateImportProgress('正在解析 UTags 标签...', 0, '');
+      await new Promise(resolve => setTimeout(resolve, 0));
+      const data = JSON.parse(text);
+      const { bookmarks, importedCount } = normalizeImportedUtagsBookmarks(data);
+      updateImportProgress('正在匹配当前链接...', 0, '');
+      const matchedCount = allLinks.filter(link => getUtagsUrlCandidates(link.url).some(key => bookmarks[key])).length;
+      updateImportProgress('正在保存 UTags 数据...', 0, '准备写入');
+      // Store the normalized tag index only. The raw UTags JSON duplicates every tag
+      // and its meta fields, and is not used by the extension after import.
+      const storagePayload = {
+        [UTAGS_BOOKMARKS_STORAGE_KEY]: bookmarks,
+        [UTAGS_IMPORTED_AT_STORAGE_KEY]: new Date().toISOString(),
+        [UTAGS_DIRTY_STORAGE_KEY]: false,
+      };
+      await new Promise((resolve, reject) => {
+        chrome.storage.local.set(storagePayload, () => chrome.runtime.lastError ? reject(chrome.runtime.lastError) : resolve());
+      });
+      updateImportProgress('正在保存 UTags 数据...', 100, '保存完成');
+      utagsBookmarks = bookmarks;
+      updateImportProgress('UTags 导入完成', 100, '数据已保存，正在准备结果');
+      await new Promise(resolve => setTimeout(resolve, 80));
+      closeImportProgress();
+      showLargeMessage('UTags JSON 导入完成', [{
+        title: '导入结果',
+        lines: [
+          `UTags 条目：${importedCount}`,
+          `当前列表命中：${matchedCount}`,
+          '已保存为只读 UTags 标签索引，不会修改扩展自身标签。'
+        ]
+      }]);
+      // Add only the imported external UTags chips to existing cards; avoid full-list rendering.
+      requestAnimationFrame(() => {
+        document.querySelectorAll('.link-card').forEach(card => {
+          const linkId = card.dataset.id || card.getAttribute('data-link-id');
+          const link = allLinks.find(item => String(item.id) === String(linkId));
+          if (!link) return;
+          const container = card.querySelector('.link-tags, .tags-container, .utags-tags-card');
+          if (!container) return;
+          const html = getUtagsTagsHtml(link, 'card');
+          const temp = document.createElement('div');
+          temp.innerHTML = html;
+          temp.querySelectorAll('.utags-tag').forEach(tag => {
+            if (!container.querySelector(`[data-utags-tag="${CSS.escape(tag.dataset.utagsTag || '')}"]`)) container.appendChild(tag);
+          });
+        });
+      });
+    } catch (err) {
+      console.error('UTags JSON 导入失败:', err);
+      closeImportProgress();
+      alert('UTags JSON 导入失败：' + (err.message || err));
+    }
+  }
+
   // 绑定导入导出按钮事件
   const exportDataBtn = document.getElementById('exportDataBtn');
   const importDataBtn = document.getElementById('importDataBtn');
