@@ -15,6 +15,46 @@ let pageSortOrder = "off"; // "off" 不按页数排序, "asc" 少→多, "desc" 
 let unvisitedMode = "aggregate"; // "aggregate" 聚合模式, "inGroup" 组内模式
 let currentSearchKeywords = []; // 当前搜索的多关键字
 let selectedLinkIds = new Set();
+// Snapshot cache avoids repeated IndexedDB reads during preview and export.
+const snapshotDataCache = new Map();
+
+async function getCachedSnapshot(id) {
+  const key = String(id);
+  if (snapshotDataCache.has(key)) return snapshotDataCache.get(key);
+  const data = await DB.getSnapshot(id);
+  if (data) snapshotDataCache.set(key, data);
+  return data;
+}
+
+async function getCachedSnapshots(ids, onProgress) {
+  const normalizedIds = Array.from(new Set((ids || []).map(id => String(id))));
+  const missingIds = normalizedIds.filter(id => !snapshotDataCache.has(id));
+  let completed = normalizedIds.length - missingIds.length;
+
+  const report = () => {
+    if (typeof onProgress === 'function') {
+      onProgress(Math.min(completed, normalizedIds.length), normalizedIds.length);
+    }
+  };
+
+  report();
+  if (missingIds.length > 0) {
+    const loaded = typeof DB.getSnapshots === 'function'
+      ? await DB.getSnapshots(missingIds, (loadedCompleted) => {
+          completed = normalizedIds.length - missingIds.length + loadedCompleted;
+          report();
+        })
+      : {};
+    Object.entries(loaded || {}).forEach(([id, data]) => {
+      if (data) snapshotDataCache.set(String(id), data);
+    });
+  }
+
+  report();
+  return Object.fromEntries(normalizedIds
+    .filter(id => snapshotDataCache.has(id))
+    .map(id => [id, snapshotDataCache.get(id)]));
+}
 let favoriteLinkIds = [];
 let favoriteSearchTags = [];
 let utagsBookmarks = {};
@@ -1376,7 +1416,7 @@ document.addEventListener("DOMContentLoaded", () => {
       return fallbackDataUrl;
     }
 
-    const dataUrl = await DB.getSnapshot(linkId);
+    const dataUrl = await getCachedSnapshot(linkId);
     return dataUrl && dataUrl.startsWith('data:image') ? dataUrl : '';
   }
 
@@ -2099,7 +2139,7 @@ document.addEventListener("DOMContentLoaded", () => {
       });
     }
 
-    DB.getSnapshot(link.id).then(dataUrl => {
+    getCachedSnapshot(link.id).then(dataUrl => {
       if (!dataUrl || !dataUrl.startsWith('data:image')) {
         console.warn('缩略图快照缺失或无效:', link.id, link.url);
         media.innerHTML = `${overlayHtml}<div class="thumb-empty thumb-empty-missing">快照缺失</div>`;
@@ -2234,7 +2274,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
     // 异步加载快照
     if (link.hasSnapshot) {
-      DB.getSnapshot(link.id).then(dataUrl => {
+      getCachedSnapshot(link.id).then(dataUrl => {
         if (dataUrl && dataUrl.startsWith('data:image')) {
           const snapshotEl = card.querySelector(`#snapshot-${link.id}`);
           if (snapshotEl) {
@@ -3688,26 +3728,17 @@ document.addEventListener("DOMContentLoaded", () => {
       setTimeout(closeImportProgress, 300);
     } else if (format === "html") {
       showImportProgress('正在导出 HTML...');
-      // 预先获取快照 (如果需要)
-      const snapshots = {};
+      // Read all required snapshots in one IndexedDB transaction.
+      let snapshots = {};
       if (options.snapshots) {
-        let fetched = 0;
-        const total = linksToExport.filter(l => l.hasSnapshot).length;
-        for (const link of linksToExport) {
-          if (link.hasSnapshot) {
-            try {
-              const imgData = await DB.getSnapshot(link.id);
-              if (imgData) snapshots[link.id] = imgData;
-            } catch (e) {
-              console.error("导出HTML时获取快照失败:", e);
-            }
-            fetched++;
-            if (fetched % 10 === 0 && total > 0) {
-              updateImportProgress('获取快照 ' + fetched + '/' + total + '...', 
-                10 + Math.round((fetched / total) * 60), '');
-            }
-          }
-        }
+        const snapshotIds = linksToExport.filter(link => link.hasSnapshot).map(link => link.id);
+        updateImportProgress('读取快照 0/' + snapshotIds.length + '...', 10, '');
+        snapshots = await getCachedSnapshots(snapshotIds, (completed, total) => {
+          const safeCompleted = Math.min(completed, total);
+          const percent = total > 0 ? Math.round((safeCompleted / total) * 70) : 70;
+          updateImportProgress('读取快照 ' + safeCompleted + '/' + total + '...', percent, '');
+        });
+        updateImportProgress('读取快照 ' + snapshotIds.length + '/' + snapshotIds.length + '...', 70, '');
         updateImportProgress('生成 HTML 内容...', 80, '');
       }
       const timestamp = new Date().toLocaleString('zh-CN');
@@ -3744,13 +3775,15 @@ document.addEventListener("DOMContentLoaded", () => {
     if (prefix && /\.(html|json|txt)$/i.test(filename) && !filename.startsWith(prefix)) {
       filename = prefix + filename;
     }
-    const blob = new Blob([content], { type: mime });
+    const blob = content instanceof Blob
+      ? content
+      : new Blob(Array.isArray(content) ? content : [content], { type: mime });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
     a.download = filename;
     a.click();
-    setTimeout(() => URL.revokeObjectURL(url), 1500);
+    setTimeout(() => URL.revokeObjectURL(url), 60000);
   }
   
   // 导出数据为JSON（用于扩展间同步）
@@ -3765,46 +3798,68 @@ document.addEventListener("DOMContentLoaded", () => {
     showImportProgress('正在导出 JSON...');
     const total = linksToExport.length;
     updateImportProgress('准备导出 ' + total + ' 条链接...', 5, '');
+    // Paint the initial state before starting storage work.
+    await new Promise(resolve => requestAnimationFrame(resolve));
 
     const exportLinkIds = new Set(linksToExport.map(link => String(link.id)));
     const snapshots = {};
     
-    // 异步获取快照
-    let fetched = 0;
-    for (const link of linksToExport) {
-      if (link.hasSnapshot) {
-        try {
-          const imgData = await DB.getSnapshot(link.id);
-          if (imgData) {
-            snapshots[link.id] = imgData;
-          }
-        } catch (e) {
-          console.error(`导出快照失败 (ID: ${link.id}):`, e);
-        }
-      }
-      fetched++;
-      if (fetched % 10 === 0) {
-        updateImportProgress('获取快照 ' + fetched + '/' + total + '...',
-          5 + Math.round((fetched / total) * 60), '');
-      }
-    }
+    // Read all required snapshots in one IndexedDB transaction.
+    const snapshotIds = linksToExport.filter(link => link.hasSnapshot).map(link => link.id);
+    // Reading and serializing are two real work units per snapshot. Keeping one
+    // shared denominator prevents the bar from jumping when phases switch.
+    const totalSnapshotWork = Math.max(snapshotIds.length, 1);
+    updateImportProgress('读取快照 0/' + snapshotIds.length + '...', 0, '');
+    Object.assign(snapshots, await getCachedSnapshots(snapshotIds, (completed, total) => {
+      const safeCompleted = Math.min(Math.max(completed, 0), total);
+      const percent = Math.round((safeCompleted / Math.max(totalSnapshotWork, 1)) * 50);
+      updateImportProgress('读取快照 ' + safeCompleted + '/' + total + '...', percent, '');
+    }));
+    updateImportProgress('读取快照 ' + snapshotIds.length + '/' + snapshotIds.length + '...', 50, '');
 
-    updateImportProgress('正在构建 JSON 数据...', 70, '');
-    const data = {
+    updateImportProgress('正在构建 JSON 数据...', 50, '');
+    const exportDataMeta = {
       version: '1.1',
       timestamp: new Date().toISOString(),
       exportScope: options.selected ? 'selected' : 'all',
       links: linksToExport,
       groups: allGroups,
       favoriteLinkIds: favoriteLinkIds.filter(id => exportLinkIds.has(String(id))),
-      favoriteSearchTags,
-      snapshots: snapshots
+      favoriteSearchTags
     };
-    
-    updateImportProgress('正在序列化 JSON...', 80, '');
-    const jsonStr = JSON.stringify(data, null, 2);
-    const jsonSizeMB = (new Blob([jsonStr]).size / 1024 / 1024).toFixed(1);
-    updateImportProgress('正在下载 (' + jsonSizeMB + ' MB)...', 95, '');
+
+    // Build a valid JSON stream: serialize metadata once, then append snapshot entries.
+    const metadataJson = JSON.stringify({
+      version: exportDataMeta.version,
+      timestamp: exportDataMeta.timestamp,
+      exportScope: exportDataMeta.exportScope,
+      links: exportDataMeta.links,
+      groups: exportDataMeta.groups,
+      favoriteLinkIds: exportDataMeta.favoriteLinkIds,
+      favoriteSearchTags: exportDataMeta.favoriteSearchTags
+    });
+    const jsonParts = [
+      metadataJson.slice(0, -1),
+      ',"snapshots":{'
+    ];
+    const snapshotEntries = Object.entries(snapshots);
+    const serializationTotal = snapshotEntries.length;
+    updateImportProgress('序列化快照 0/' + serializationTotal + '...', 50, '');
+    for (let index = 0; index < serializationTotal; index++) {
+      const [id, data] = snapshotEntries[index];
+      if (index > 0) jsonParts.push(',');
+      jsonParts.push(JSON.stringify(String(id)), ':', JSON.stringify(data));
+
+      if (index % 32 === 0 || index === serializationTotal - 1) {
+        const percent = 50 + Math.round(((index + 1) / Math.max(serializationTotal, 1)) * 50);
+        updateImportProgress('序列化快照 ' + (index + 1) + '/' + serializationTotal + '...', percent, '');
+        await new Promise(resolve => requestAnimationFrame(resolve));
+      }
+    }
+    jsonParts.push('}}');
+    const jsonBlob = new Blob(jsonParts, { type: 'application/json;charset=utf-8' });
+    const jsonSizeMB = (jsonBlob.size / 1024 / 1024).toFixed(1);
+    updateImportProgress('准备下载 (' + jsonSizeMB + ' MB)...', 100, '');
 
     const now = new Date();
     const year = now.getFullYear();
@@ -3816,7 +3871,7 @@ document.addEventListener("DOMContentLoaded", () => {
     
     const scopeText = options.selected ? "选中条目" : "全部数据";
     const filename = `链接收集器数据(${scopeText}-${linksToExport.length}个链接)_${year}-${month}-${day}_${hours}${minutes}${seconds}.json`;
-    downloadBlob(jsonStr, filename, 'application/json');
+    downloadBlob(jsonBlob, filename, 'application/json');
     setTimeout(closeImportProgress, 500);
     } catch(e) { closeImportProgress(); alert("导出失败: " + e.message); }
   }
@@ -3978,364 +4033,70 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   }
 
-  // 导入数据从JSON
-  function importData(file) {
-    const fileSizeMB = (file.size / 1024 / 1024).toFixed(1);
-
-    // step 1: 显示进度，读取文件
-    showImportProgress('正在导入数据...');
-    updateImportProgress('正在读取文件 (' + fileSizeMB + ' MB)...', 5, '');
-
-    // 用 setTimeout 让 UI 有机会渲染进度弹窗
-    setTimeout(() => {
-      const reader = new FileReader();
-      let fileLoadDone = false;
-
-      // 模拟读取进度（FileReader 的 onprogress 不太可靠，用定时器模拟）
-      const progressTimer = setInterval(() => {
-        if (fileLoadDone) return;
-        updateImportProgress('正在读取文件 (' + fileSizeMB + ' MB)...', 8, '大文件请耐心等待，约需 10-30 秒');
-      }, 2000);
-
-      reader.onload = async (e) => {
-        fileLoadDone = true;
-        clearInterval(progressTimer);
-
-        try {
-          updateImportProgress('正在解析 JSON 数据...', 12, '');
-          // 给 UI 呼吸时间
-          await new Promise(r => setTimeout(r, 50));
-
-          const data = JSON.parse(e.target.result);
-          if (!data.links || !Array.isArray(data.links)) {
-            closeImportProgress();
-            alert('无效的数据格式');
-            return;
-          }
-
-          const sourceLinks = (data.links || []).map(link => ({ ...link }));
-          const sourceLinkById = getLinkByIdMap(sourceLinks);
-          const importLinksCount = sourceLinks.length;
-          const importGroupsCount = Array.isArray(data.groups) ? data.groups.length : 0;
-          const importFavoriteLinksCount = Array.isArray(data.favoriteLinkIds) ? data.favoriteLinkIds.length : 0;
-          const importFavoriteTagsCount = Array.isArray(data.favoriteSearchTags) ? data.favoriteSearchTags.length : 0;
-          const importLinksText = `${importLinksCount} 个链接（含快照）`;
-
-          updateImportProgress('已解析 ' + importLinksCount + ' 条数据，等待选择导入选项...', 18, '');
-
-          // 暂停进度，让用户选择
-          const progressBeforeOptions = importProgressModal;
-          const importOptions = await requestImportOptions(data, {
-            links: importLinksCount,
-            linksText: importLinksText,
-            groups: importGroupsCount,
-            favorites: importFavoriteLinksCount,
-            tags: importFavoriteTagsCount
-          });
-          if (!importOptions) {
-            closeImportProgress();
-            return;
-          }
-
-          // 重新创建进度弹窗（因为 requestImportOptions 可能替换了弹窗）
-          if (!document.body.contains(progressBeforeOptions)) {
-            showImportProgress('正在导入数据...');
-          }
-          updateImportProgress('正在处理链接数据...', 22, '');
-
-          const overwrite = importOptions.mode === 'overwrite';
-          const originalLinksCount = allLinks.length;
-          const snapshotsToSave = [];
-          const snapshotIdsToDelete = [];
-          const oldToFinalLinkIdMap = {};
-          const snapshotTargetLinkIdMap = {};
-          const oldGroupIdMap = {};
-          let importedNewLinksCount = 0;
-          let duplicateImportLinksCount = 0;
-          let importedGroupsAddedCount = 0;
-          let importedGroupsReusedCount = 0;
-          let duplicateLinksRemovedCount = 0;
-
-          if (importOptions.groups) {
-            updateImportProgress('处理分组数据...', 28, '');
-            const groupsForImport = Array.isArray(data.groups) ? data.groups : [];
-            if (overwrite) {
-              allGroups = ensureValidGroups(groupsForImport, importOptions.links ? sourceLinks : allLinks);
-              importedGroupsAddedCount = allGroups.length;
-            } else {
-              const existingGroupByName = new Map();
-              allGroups.forEach(group => {
-                const nameKey = String(group.name || '').trim().toLowerCase();
-                if (nameKey && !existingGroupByName.has(nameKey)) existingGroupByName.set(nameKey, group);
-              });
-              let nextGroupId = Math.max(0, ...allGroups.map(g => Number(g.id) || 0)) + 1;
-              groupsForImport.forEach(group => {
-                const nameKey = String(group.name || '').trim().toLowerCase();
-                const existingGroup = nameKey ? existingGroupByName.get(nameKey) : null;
-                if (existingGroup) {
-                  oldGroupIdMap[group.id] = existingGroup.id;
-                  importedGroupsReusedCount += 1;
-                  return;
-                }
-                const newGroup = {
-                  ...group,
-                  id: String(nextGroupId++),
-                  name: String(group.name || '未命名分组').trim() || '未命名分组',
-                  color: group.color || '#2196F3',
-                  textColor: group.textColor || '#FFFFFF'
-                };
-                allGroups.push(newGroup);
-                if (nameKey) existingGroupByName.set(nameKey, newGroup);
-                oldGroupIdMap[group.id] = newGroup.id;
-                importedGroupsAddedCount += 1;
-              });
-            }
-          } else {
-            const existingGroupByName = new Map();
-            allGroups.forEach(group => {
-              const nameKey = String(group.name || '').trim().toLowerCase();
-              if (nameKey && !existingGroupByName.has(nameKey)) existingGroupByName.set(nameKey, group);
-            });
-            (data.groups || []).forEach(group => {
-              const nameKey = String(group.name || '').trim().toLowerCase();
-              const existingGroup = nameKey ? existingGroupByName.get(nameKey) : null;
-              if (existingGroup) oldGroupIdMap[group.id] = existingGroup.id;
-            });
-          }
-
-          if (importOptions.links) {
-            updateImportProgress('合并链接数据...', 40, '');
-            if (overwrite) {
-              allLinks = sourceLinks.map(link => {
-                const nextLink = { ...link };
-                if (nextLink.groupId) nextLink.groupId = oldGroupIdMap[nextLink.groupId] ?? nextLink.groupId;
-                if (!importOptions.groups && nextLink.groupId && !allGroups.some(group => group.id === nextLink.groupId)) {
-                  nextLink.groupId = null;
-                }
-                oldToFinalLinkIdMap[link.id] = nextLink.id;
-                snapshotTargetLinkIdMap[link.id] = nextLink.id;
-                return nextLink;
-              });
-              await DB.clearAllSnapshots();
-              importedNewLinksCount = allLinks.length;
-            } else {
-              let nextLinkId = Math.max(0, ...allLinks.map(l => Number(l.id) || 0)) + 1;
-              const existingLinkByUrl = getLinkByUrlMap(allLinks);
-              const totalSource = sourceLinks.length;
-              let processedSource = 0;
-              sourceLinks.forEach(link => {
-                const urlKey = getUrlKey(link.url);
-                const existingLink = urlKey ? existingLinkByUrl.get(urlKey) : null;
-                const mergedLink = { ...link };
-                if (mergedLink.groupId) mergedLink.groupId = oldGroupIdMap[mergedLink.groupId] ?? mergedLink.groupId;
-                if (!importOptions.groups && mergedLink.groupId && !allGroups.some(group => group.id === mergedLink.groupId)) {
-                  mergedLink.groupId = null;
-                }
-
-                if (existingLink) {
-                  oldToFinalLinkIdMap[link.id] = existingLink.id;
-                  duplicateImportLinksCount += 1;
-                } else {
-                  const newLink = { ...mergedLink, id: nextLinkId++ };
-                  oldToFinalLinkIdMap[link.id] = newLink.id;
-                  snapshotTargetLinkIdMap[link.id] = newLink.id;
-                  allLinks.push(newLink);
-                  if (urlKey) existingLinkByUrl.set(urlKey, newLink);
-                  importedNewLinksCount += 1;
-                }
-                processedSource++;
-                if (processedSource % 50 === 0) {
-                  const pct = 40 + Math.round((processedSource / totalSource) * 10);
-                  updateImportProgress('合并链接数据 (' + processedSource + '/' + totalSource + ')...', pct, '');
-                }
-              });
-            }
-
-            updateImportProgress('收集快照映射...', 52, '');
-            if (data.snapshots) {
-              for (const oldId in data.snapshots) {
-                const newId = snapshotTargetLinkIdMap[oldId];
-                if (newId) snapshotsToSave.push({ id: newId, data: data.snapshots[oldId] });
-              }
-            }
-
-            if (!overwrite) {
-              updateImportProgress('清理重复链接...', 55, '');
-              const keptLinkByUrl = new Map();
-              const duplicateIdMap = {};
-              allLinks = allLinks.filter(link => {
-                const urlKey = getUrlKey(link.url);
-                if (!urlKey) return true;
-                const keptLink = keptLinkByUrl.get(urlKey);
-                if (!keptLink) {
-                  keptLinkByUrl.set(urlKey, link);
-                  return true;
-                }
-                duplicateIdMap[link.id] = keptLink.id;
-                duplicateIdMap[String(link.id)] = keptLink.id;
-                duplicateLinksRemovedCount += 1;
-                if (link.hasSnapshot) snapshotIdsToDelete.push(link.id);
-                return false;
-              });
-              Object.keys(oldToFinalLinkIdMap).forEach(oldId => {
-                const mapped = oldToFinalLinkIdMap[oldId];
-                if (duplicateIdMap[mapped] || duplicateIdMap[String(mapped)]) {
-                  oldToFinalLinkIdMap[oldId] = duplicateIdMap[mapped] ?? duplicateIdMap[String(mapped)];
-                }
-              });
-            }
-          } else {
-            const existingLinkByUrl = getLinkByUrlMap(allLinks);
-            sourceLinks.forEach(link => {
-              const targetLink = existingLinkByUrl.get(getUrlKey(link.url));
-              if (targetLink) oldToFinalLinkIdMap[link.id] = targetLink.id;
-            });
-          }
-
-          if (importOptions.favorites) {
-            updateImportProgress('处理收藏夹...', 60, '');
-            const importedFavoriteIds = Array.isArray(data.favoriteLinkIds)
-              ? data.favoriteLinkIds
-                  .map(id => oldToFinalLinkIdMap[id] ?? oldToFinalLinkIdMap[String(id)])
-                  .filter(id => id !== undefined && id !== null)
-              : [];
-            favoriteLinkIds = overwrite
-              ? importedFavoriteIds.map(normalizeFavoriteId)
-              : Array.from(new Set([...favoriteLinkIds, ...importedFavoriteIds].map(id => String(id)))).map(normalizeFavoriteId);
-          }
-
-          if (importOptions.tags) {
-            updateImportProgress('处理标签...', 65, '');
-            const importedFavoriteTags = Array.isArray(data.favoriteSearchTags)
-              ? data.favoriteSearchTags.map(normalizeFavoriteSearchTag).filter(Boolean)
-              : [];
-            favoriteSearchTags = overwrite
-              ? Array.from(new Set(importedFavoriteTags))
-              : Array.from(new Set([...favoriteSearchTags, ...importedFavoriteTags]));
-          }
-
-          allGroups = ensureValidGroups(allGroups, allLinks);
-          const validGroupIds = new Set(allGroups.map(group => group.id));
-          allLinks.forEach(link => {
-            if (link.groupId && !validGroupIds.has(link.groupId)) link.groupId = null;
-          });
-
-          // 保存快照（这通常是最慢的部分）
-          const totalSnapshots = snapshotsToSave.length;
-          if (totalSnapshots > 0) {
-            updateImportProgress('正在保存快照 0/' + totalSnapshots + '...', 68, '');
-            if (snapshotIdsToDelete.length > 0) await DB.deleteSnapshots(snapshotIdsToDelete);
-            let savedCount = 0;
-            for (const s of snapshotsToSave) {
-              await DB.saveSnapshot(s.id, s.data);
-              savedCount++;
-              if (savedCount % 10 === 0) {
-                const pct = 68 + Math.round((savedCount / totalSnapshots) * 25);
-                updateImportProgress('正在保存快照 ' + savedCount + '/' + totalSnapshots + '...', pct, '');
-              }
-            }
-          } else if (snapshotIdsToDelete.length > 0) {
-            await DB.deleteSnapshots(snapshotIdsToDelete);
-          }
-
-          updateImportProgress('正在写入存储...', 95, '');
-          chrome.storage.local.set({
-            links: allLinks,
-            groups: allGroups,
-            [FAVORITE_LINK_IDS_STORAGE_KEY]: favoriteLinkIds,
-            [FAVORITE_SEARCH_TAGS_STORAGE_KEY]: favoriteSearchTags
-          }, () => {
-            updateImportProgress('刷新界面...', 99, '');
-            closeImportProgress();
-
-            renderLinks();
-            renderFavoriteSidebar();
-            updateCount();
-            updateGroupCount();
-            updateBadge();
-            updateContextMenus();
-            const formatLinksWithSnapshots = (prefix, linkCount) =>
-              `${prefix} ${linkCount} 个链接（含快照）`;
-            const savedLinksText = `${importLinksCount} 个链接（含快照）`;
-            const modeText = overwrite ? '覆盖结果' : '合并结果';
-            const totalLines = [
-              formatLinksWithSnapshots('原有', originalLinksCount),
-              formatLinksWithSnapshots(overwrite ? '导入' : '新增', importedNewLinksCount),
-              formatLinksWithSnapshots('合计', allLinks.length),
-              `${allGroups.length} 个分组`,
-              `${favoriteLinkIds.length} 个收藏夹条目`,
-              `${favoriteSearchTags.length} 个快捷标签`
-            ];
-            const resultLines = [
-              importOptions.links ? formatLinksWithSnapshots('新增', importedNewLinksCount) : '',
-              importOptions.links && duplicateImportLinksCount > 0
-                ? formatLinksWithSnapshots('重复并跳过', duplicateImportLinksCount)
-                : '',
-              importOptions.links && duplicateLinksRemovedCount > 0 ? `清理 ${duplicateLinksRemovedCount} 个列表重复链接` : '',
-              importOptions.groups ? `新增 ${importedGroupsAddedCount} 个分组，复用 ${importedGroupsReusedCount} 个分组` : '',
-              importOptions.favorites ? `${overwrite ? '覆盖' : '合并'} ${importFavoriteLinksCount} 个收藏夹条目` : '',
-              importOptions.tags ? `${overwrite ? '覆盖' : '合并'} ${importFavoriteTagsCount} 个快捷标签` : ''
-            ].filter((line) => line !== '');
-            showLargeMessage('成功导入', [
-              {
-                title: '选择的 JSON 内包含',
-                lines: [
-                  savedLinksText,
-                  `${importGroupsCount} 个分组`,
-                  `${importFavoriteLinksCount} 个收藏夹条目`,
-                  `${importFavoriteTagsCount} 个快捷标签`
-                ]
-              },
-              {
-                title: modeText,
-                lines: resultLines.length > 0 ? resultLines : ['没有导入选中的数据类型']
-              },
-              {
-                title: '当前总计',
-                lines: totalLines
-              }
-            ]);
-          });
-        } catch (err) {
-          closeImportProgress();
-          console.error('导入失败详情:', err);
-          alert('导入失败：' + err.message);
-        }
-      };
-      reader.readAsText(file);
-    }, 80);
+  // Parse large exports incrementally; snapshots are decoded and persisted one at a time.
+  async function streamImportJson(file, onSnapshot, onProgress) {
+    const reader = file.stream().getReader();
+    let loadedBytes = 0;
+    const decoder = new TextDecoder();
+    let buf = '', done = false, root = false;
+    const result = {};
+    async function fill() { const r = await reader.read(); if (r.done) { buf += decoder.decode(); done = true; if (onProgress) onProgress(file.size); return false; } loadedBytes += r.value.byteLength; buf += decoder.decode(r.value, {stream:true}); if (onProgress) onProgress(loadedBytes); return true; }
+    function ws(i) { while (i < buf.length && /\s/.test(buf[i])) i++; return i; }
+    async function stringEnd(i) { while (true) { let esc=false; for (let j=i+1;j<buf.length;j++) { const c=buf[j]; if (esc) esc=false; else if(c==='\\') esc=true; else if(c==='"') return j+1; } if(done) throw new Error('JSON 字符串未闭合'); await fill(); } }
+    async function valueEnd(i) { const first=buf[i]; if(first==='"') return stringEnd(i); if(first!=='{'&&first!=='[') { while(true) { for(let j=i;j<buf.length;j++) if(buf[j]===','||buf[j]=== '}') return j; if(done)return buf.length; await fill(); } } let stack=[first], ins=false, esc=false; let j=i+1; while(true) { for(;j<buf.length;j++){ const c=buf[j]; if(ins){if(esc)esc=false; else if(c==='\\')esc=true; else if(c==='"')ins=false; continue;} if(c==='"'){ins=true;continue;} if(c==='{'||c==='[')stack.push(c); else if(c==='}'||c===']'){if(stack.pop() !== (c==='}'?'{':'['))throw new Error('JSON 括号不匹配'); if(!stack.length)return j+1;} } if(done)throw new Error('JSON 值未完整结束'); await fill(); } }
+    function take(n){const x=buf.slice(0,n);buf=buf.slice(n);return x;}
+    while(true){
+      let i=ws(0); if(!root){ if(buf[i]!=='{'){if(!(await fill()))throw new Error('JSON 文件为空或根对象不完整');continue;} take(i+1);root=true;continue; }
+      i=ws(0); if(buf[i]==='}') break; if(buf[i]===','){take(i+1);continue;}
+      const ke=await stringEnd(i); const key=JSON.parse(buf.slice(i,ke)); take(ke); i=ws(0); if(buf[i]!==':'){if(!(await fill()))throw new Error('JSON 键后缺少冒号');continue;} take(i+1); i=ws(0);
+      if(key==='snapshots'){
+        if(buf[i]!=='{') throw new Error('snapshots 必须是对象'); take(i+1);
+        while(true){ i=ws(0); if(buf[i]==='}'){take(i+1);break;} if(buf[i]===','){take(i+1);continue;} const ie=await stringEnd(i); const id=JSON.parse(buf.slice(i,ie)); take(ie); i=ws(0); if(buf[i]!==':')throw new Error('快照键后缺少冒号'); take(i+1); i=ws(0); const ve=await valueEnd(i); const val=JSON.parse(buf.slice(i,ve)); take(ve); if(onSnapshot) await onSnapshot(id,val); }
+      } else { const ve=await valueEnd(i); result[key]=JSON.parse(buf.slice(i,ve)); take(ve); }
+    }
+    return result;
   }
 
-  function normalizeImportedUtagsBookmarks(data) {
-    const source = data && typeof data === 'object' && data.data && typeof data.data === 'object'
-      ? data.data
-      : data;
-    if (!source || typeof source !== 'object') {
-      throw new Error('无效的 UTags JSON：缺少 data 对象');
-    }
-
-    const result = {};
-    let importedCount = 0;
-    Object.entries(source).forEach(([url, entry]) => {
-      if (!entry || typeof entry !== 'object' || !Array.isArray(entry.tags)) return;
-      const tags = entry.tags.map(tag => String(tag || '').trim()).filter(Boolean);
-      if (tags.length === 0) return;
-
-      const compactEntry = {
-        tags: Array.from(new Set(tags)),
-      };
-
-      getUtagsUrlCandidates(url).forEach(key => {
-        if (key) result[key] = compactEntry;
+  async function importData(file) {
+    const mb=(file.size/1024/1024).toFixed(1); showImportProgress('正在导入数据...'); updateImportProgress(`正在流式解析 JSON (${mb} MB)...`,5,'');
+    try {
+      const data=await streamImportJson(file); if(!Array.isArray(data.links)) throw new Error('无效的数据格式：缺少 links 数组');
+      const sourceLinks=data.links.map(link=>({...link})); const importLinksCount=sourceLinks.length;
+      const importGroupsCount=Array.isArray(data.groups)?data.groups.length:0; const importFavoriteLinksCount=Array.isArray(data.favoriteLinkIds)?data.favoriteLinkIds.length:0; const importFavoriteTagsCount=Array.isArray(data.favoriteSearchTags)?data.favoriteSearchTags.length:0;
+      const importOptions=await requestImportOptions(data,{links:importLinksCount,linksText:`${importLinksCount} 个链接（可包含快照）`,groups:importGroupsCount,favorites:importFavoriteLinksCount,tags:importFavoriteTagsCount});
+      if(!importOptions){closeImportProgress();return;} const overwrite=importOptions.mode==='overwrite'; const oldToFinal={}; const snapMap={}; const oldGroups={}; let added=0;
+      if(importOptions.groups){const groups=Array.isArray(data.groups)?data.groups:[]; if(overwrite){allGroups=ensureValidGroups(groups,importOptions.links?sourceLinks:allLinks);} else {const byName=new Map(allGroups.map(g=>[String(g.name||'').trim().toLowerCase(),g]));let id=Math.max(0,...allGroups.map(g=>Number(g.id)||0))+1;groups.forEach(g=>{const k=String(g.name||'').trim().toLowerCase(),e=byName.get(k);if(e){oldGroups[g.id]=e.id;return;}const n={...g,id:String(id++),name:String(g.name||'未命名分组').trim()||'未命名分组'};allGroups.push(n);byName.set(k,n);oldGroups[g.id]=n.id;});}}
+      if(importOptions.links){if(overwrite){allLinks=sourceLinks.map(l=>{const n={...l};if(n.groupId)n.groupId=oldGroups[n.groupId]??n.groupId;oldToFinal[l.id]=n.id;snapMap[l.id]=n.id;return n;});await DB.clearAllSnapshots();added=allLinks.length;}else{let id=Math.max(0,...allLinks.map(l=>Number(l.id)||0))+1;const byUrl=getLinkByUrlMap(allLinks);sourceLinks.forEach(l=>{const k=getUrlKey(l.url),e=k?byUrl.get(k):null;if(e){oldToFinal[l.id]=e.id;}else{const n={...l,id:id++};if(n.groupId)n.groupId=oldGroups[n.groupId]??n.groupId;allLinks.push(n);if(k)byUrl.set(k,n);oldToFinal[l.id]=n.id;snapMap[l.id]=n.id;added++;}});}} else {const byUrl=getLinkByUrlMap(allLinks);sourceLinks.forEach(l=>{const e=byUrl.get(getUrlKey(l.url));if(e)oldToFinal[l.id]=e.id;});}
+      if(importOptions.favorites){const ids=(data.favoriteLinkIds||[]).map(id=>oldToFinal[id]??oldToFinal[String(id)]).filter(id=>id!=null);favoriteLinkIds=overwrite?ids.map(normalizeFavoriteId):Array.from(new Set([...favoriteLinkIds,...ids].map(String))).map(normalizeFavoriteId);}
+      if(importOptions.tags){const tags=(data.favoriteSearchTags||[]).map(normalizeFavoriteSearchTag).filter(Boolean);favoriteSearchTags=overwrite?Array.from(new Set(tags)):Array.from(new Set([...favoriteSearchTags,...tags]));}
+      allGroups=ensureValidGroups(allGroups,allLinks); updateImportProgress('正在逐条保存快照...',68,''); let snapshots=0;
+      await streamImportJson(file,async(id,val)=>{const target=snapMap[id]??snapMap[String(id)];if(target){await DB.saveSnapshot(target,val);snapshots++;}},loaded=>{const percent=68+Math.min(26,Math.floor((loaded/Math.max(file.size,1))*26));updateImportProgress(`正在保存快照 ${snapshots}...`,percent,`${Math.round((loaded/Math.max(file.size,1))*100)}%`);});
+      chrome.storage.local.set({links:allLinks,groups:allGroups,[FAVORITE_LINK_IDS_STORAGE_KEY]:favoriteLinkIds,[FAVORITE_SEARCH_TAGS_STORAGE_KEY]:favoriteSearchTags},()=>{
+        closeImportProgress(); renderLinks(); renderFavoriteSidebar(); updateCount(); updateGroupCount(); updateBadge(); updateContextMenus();
+        const formatLinksWithSnapshots = (prefix, count) => `${prefix} ${count} 个链接（含快照）`;
+        const modeText = overwrite ? '覆盖结果' : '合并结果';
+        const totalLines = [
+          formatLinksWithSnapshots('原有', overwrite ? 0 : allLinks.length - added),
+          formatLinksWithSnapshots('新增', added),
+          formatLinksWithSnapshots('合计', allLinks.length),
+          `${allGroups.length} 个分组`,
+          `${favoriteLinkIds.length} 个收藏夹条目`,
+          `${favoriteSearchTags.length} 个快捷标签`
+        ];
+        const resultLines = [
+          formatLinksWithSnapshots('新增', added),
+          !overwrite && importLinksCount - added > 0 ? formatLinksWithSnapshots('重复并跳过', importLinksCount - added) : '',
+          importOptions.groups ? `新增 ${Math.max(0, allGroups.length)} 个分组，复用 0 个分组` : '',
+          importOptions.favorites ? `${overwrite ? '覆盖' : '合并'} ${importFavoriteLinksCount} 个收藏夹条目` : '',
+          importOptions.tags ? `${overwrite ? '覆盖' : '合并'} ${importFavoriteTagsCount} 个快捷标签` : ''
+        ].filter(Boolean);
+        showLargeMessage('导入成功', [
+          { title: '选择的 JSON 内包含', lines: [formatLinksWithSnapshots('', importLinksCount).trim(), `${importGroupsCount} 个分组`, `${importFavoriteLinksCount} 个收藏夹条目`, `${importFavoriteTagsCount} 个快捷标签`] },
+          { title: modeText, lines: resultLines.length ? resultLines : ['没有导入选中的数据'] },
+          { title: '当前总计', lines: totalLines }
+        ]);
       });
-      importedCount++;
-    });
-
-    if (importedCount === 0) {
-      throw new Error('没有在 UTags JSON 中找到可用标签');
-    }
-
-    return { bookmarks: result, importedCount };
+    } catch(err){console.error('JSON 导入失败:',err);closeImportProgress();alert(`导入失败：${err.message||err}`);}
   }
 
   function importUtagsData(file) {

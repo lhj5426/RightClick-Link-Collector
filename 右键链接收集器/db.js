@@ -69,6 +69,51 @@ const DB = {
     }
   },
 
+  // 批量读取快照，共享一个 IndexedDB 事务
+  async getSnapshots(ids, onProgress) {
+    try {
+      const normalizedIds = Array.from(new Set((ids || []).map(id => String(id))));
+      if (normalizedIds.length === 0) return {};
+
+      const db = await this.init();
+      return await new Promise((resolve, reject) => {
+        const transaction = db.transaction([STORE_NAME], 'readonly');
+        const store = transaction.objectStore(STORE_NAME);
+        const snapshots = {};
+        let completed = 0;
+        let settled = false;
+
+        const fail = (error) => {
+          if (settled) return;
+          settled = true;
+          reject(error);
+        };
+        transaction.onerror = (event) => fail(event.target.error);
+        transaction.onabort = (event) => fail(event.target.error || new Error('getSnapshots aborted'));
+
+        normalizedIds.forEach(id => {
+          const request = store.get(id);
+          request.onsuccess = (event) => {
+            const record = event.target.result;
+            if (record && record.data) snapshots[id] = record.data;
+            completed++;
+            if (typeof onProgress === 'function') {
+              onProgress(completed, normalizedIds.length);
+            }
+            if (completed === normalizedIds.length && !settled) {
+              settled = true;
+              resolve(snapshots);
+            }
+          };
+          request.onerror = (event) => fail(event.target.error);
+        });
+      });
+    } catch (err) {
+      console.error('DB getSnapshots error:', err);
+      return {};
+    }
+  },
+
   // 删除快照
 async deleteSnapshot(id) {
     try {
