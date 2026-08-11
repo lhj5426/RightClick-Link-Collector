@@ -3997,7 +3997,12 @@ document.addEventListener("DOMContentLoaded", () => {
 
   // 导入进度弹窗
   let importProgressModal = null;
+  let importProgressTimer = null;
   function showImportProgress(title) {
+    if (importProgressTimer) {
+      clearInterval(importProgressTimer);
+      importProgressTimer = null;
+    }
     if (importProgressModal) importProgressModal.remove();
     importProgressModal = document.createElement('div');
     importProgressModal.className = 'modal show';
@@ -4024,13 +4029,19 @@ document.addEventListener("DOMContentLoaded", () => {
     const fillEl = importProgressModal.querySelector('#importProgressBarFill');
     const detailEl = importProgressModal.querySelector('#importProgressDetail');
     const percentEl = importProgressModal.querySelector('#importProgressPercent');
-    const safePercent = Math.max(0, Math.min(100, Math.round(Number(percent) || 0)));
-    if (phaseEl) phaseEl.textContent = phase;
-    if (fillEl) fillEl.style.width = safePercent + '%';
-    if (detailEl) detailEl.textContent = detail || '';
-    if (percentEl) percentEl.textContent = safePercent + '%';
+    if (phaseEl && phase !== null) phaseEl.textContent = phase;
+    if (percent !== undefined && percent !== null) {
+      const safePercent = Math.max(0, Math.min(100, Math.round(Number(percent) || 0)));
+      if (fillEl) fillEl.style.width = safePercent + '%';
+      if (percentEl) percentEl.textContent = safePercent + '%';
+    }
+    if (detailEl && detail !== null) detailEl.textContent = detail || '';
   }
   function closeImportProgress() {
+    if (importProgressTimer) {
+      clearInterval(importProgressTimer);
+      importProgressTimer = null;
+    }
     if (importProgressModal) {
       importProgressModal.remove();
       importProgressModal = null;
@@ -4139,31 +4150,58 @@ document.addEventListener("DOMContentLoaded", () => {
     const fileSizeMB = (file.size / 1024 / 1024).toFixed(1);
     showImportProgress('正在导入 UTags JSON...');
     updateImportProgress(`正在读取 UTags JSON (${fileSizeMB} MB)...`, 0, '');
+
+    // 模拟进度：FileReader.onprogress 对本地文件不可靠，经常不触发。
+    // 按阶段分配百分比，每个阶段内定时推进，确保进度条真实可见。
+    let currentPercent = 0;
+    function startProgress(from, to, durationMs) {
+      if (importProgressTimer) clearInterval(importProgressTimer);
+      const start = performance.now();
+      importProgressTimer = setInterval(() => {
+        const elapsed = performance.now() - start;
+        const ratio = Math.min(1, elapsed / durationMs);
+        currentPercent = Math.round(from + (to - from) * ratio);
+        updateImportProgress(null, currentPercent, `${currentPercent}%`);
+      }, 50);
+    }
+    function stopProgress(atPercent) {
+      if (importProgressTimer) clearInterval(importProgressTimer);
+      currentPercent = atPercent;
+      updateImportProgress(null, atPercent, `${atPercent}%`);
+    }
+
     try {
-      const reader = file.stream().getReader();
-      const decoder = new TextDecoder();
-      let text = '';
-      let loaded = 0;
-      while (true) {
-        const chunk = await reader.read();
-        if (chunk.done) break;
-        loaded += chunk.value.byteLength;
-        text += decoder.decode(chunk.value, { stream: true });
-        const percent = Math.min(100, Math.floor((loaded / Math.max(file.size, 1)) * 100));
-        updateImportProgress(`正在读取 UTags JSON...`, percent, `${Math.round((loaded / Math.max(file.size, 1)) * 100)}%`);
-        await new Promise(resolve => setTimeout(resolve, 0));
-      }
-      text += decoder.decode();
-      updateImportProgress('正在解析 UTags 标签...', 0, '');
+      // 阶段 1：读取文件（0% -> 30%）
+      startProgress(0, 30, 600);
+      const text = await new Promise((resolve, reject) => {
+        const fr = new FileReader();
+        fr.onload = (e) => resolve(new TextDecoder().decode(e.target.result));
+        fr.onerror = () => reject(new Error('读取 UTags JSON 文件失败'));
+        fr.readAsArrayBuffer(file);
+      });
+      stopProgress(30);
+
+      // 阶段 2：解析数据（30% -> 60%）
+      updateImportProgress('正在解析 UTags 标签...', null, '');
+      startProgress(30, 60, 500);
       await new Promise(resolve => setTimeout(resolve, 0));
       const data = JSON.parse(text);
       const { bookmarks, importedCount } = normalizeImportedUtagsBookmarks(data);
-      updateImportProgress('正在匹配当前链接...', 0, '');
+      stopProgress(60);
+
+      // 阶段 3：匹配当前链接（60% -> 85%）
+      updateImportProgress('正在匹配当前链接...', null, '');
+      startProgress(60, 85, 500);
       const matchedCount = allLinks.filter(link => getUtagsUrlCandidates(link.url).some(key => bookmarks[key])).length;
-      updateImportProgress('正在保存 UTags 数据...', 0, '准备写入');
-      // Store the normalized tag index only. The raw UTags JSON duplicates every tag
-      // and its meta fields, and is not used by the extension after import.
+      stopProgress(85);
+
+      // 阶段 4：保存数据（85% -> 100%）
+      updateImportProgress('正在保存 UTags 数据...', null, '准备写入');
+      startProgress(85, 100, 400);
+      // Store both the raw full JSON (for UT 标签管理 stats/details) and the
+      // normalized tag index (used for fast lookup on the manager page).
       const storagePayload = {
+        [UTAGS_FULL_JSON_STORAGE_KEY]: data,
         [UTAGS_BOOKMARKS_STORAGE_KEY]: bookmarks,
         [UTAGS_IMPORTED_AT_STORAGE_KEY]: new Date().toISOString(),
         [UTAGS_DIRTY_STORAGE_KEY]: false,
@@ -4171,7 +4209,7 @@ document.addEventListener("DOMContentLoaded", () => {
       await new Promise((resolve, reject) => {
         chrome.storage.local.set(storagePayload, () => chrome.runtime.lastError ? reject(chrome.runtime.lastError) : resolve());
       });
-      updateImportProgress('正在保存 UTags 数据...', 100, '保存完成');
+      stopProgress(100);
       utagsBookmarks = bookmarks;
       updateImportProgress('UTags 导入完成', 100, '数据已保存，正在准备结果');
       await new Promise(resolve => setTimeout(resolve, 80));
@@ -4184,20 +4222,31 @@ document.addEventListener("DOMContentLoaded", () => {
           '已保存为只读 UTags 标签索引，不会修改扩展自身标签。'
         ]
       }]);
-      // Add only the imported external UTags chips to existing cards; avoid full-list rendering.
+      // Update each rendered card's UTags container in place (no full re-render,
+      // which would freeze the UI with thousands of links). Only the dedicated
+      // .utags-tags-card container is touched, so UTags chips stay right below the URL.
       requestAnimationFrame(() => {
         document.querySelectorAll('.link-card').forEach(card => {
-          const linkId = card.dataset.id || card.getAttribute('data-link-id');
+          const linkId = card.dataset.linkId || card.dataset.id;
           const link = allLinks.find(item => String(item.id) === String(linkId));
           if (!link) return;
-          const container = card.querySelector('.link-tags, .tags-container, .utags-tags-card');
-          if (!container) return;
-          const html = getUtagsTagsHtml(link, 'card');
-          const temp = document.createElement('div');
-          temp.innerHTML = html;
-          temp.querySelectorAll('.utags-tag').forEach(tag => {
-            if (!container.querySelector(`[data-utags-tag="${CSS.escape(tag.dataset.utagsTag || '')}"]`)) container.appendChild(tag);
-          });
+          const freshHtml = getUtagsTagsHtml(link, 'card');
+          let container = card.querySelector('.utags-tags-card');
+          if (freshHtml) {
+            if (!container) {
+              container = document.createElement('div');
+              container.className = 'utags-tags utags-tags-card';
+              const urlEl = card.querySelector('.link-url');
+              if (urlEl) urlEl.after(container);
+            }
+            const temp = document.createElement('div');
+            temp.innerHTML = freshHtml;
+            const freshContainer = temp.firstElementChild;
+            if (freshContainer) container.innerHTML = freshContainer.innerHTML;
+            container.querySelectorAll('.utags-tag').forEach(bindTagAction);
+          } else if (container) {
+            container.remove();
+          }
         });
       });
     } catch (err) {
