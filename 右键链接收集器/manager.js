@@ -4362,7 +4362,7 @@ document.addEventListener("DOMContentLoaded", () => {
       const pageCountValue = getPageCountValue(link);
       const batchN = pageCountValue > 600 ? 8 : pageCountValue > 350 ? 4 : pageCountValue > 250 ? 2 : 1;
       const pageCountDisplay = pageCountText
-        ? `<div class="tab-page-count">页数: ${escapeHtml(pageCountText)} <span class="open-link-btn-inline" role="button" onclick="window.openLinkByBatch(this)" title="按页数规则自动开 N 个标签 (autoBatchDivide)">打开${batchN}个标签</span></div>`
+        ? `<div class="tab-page-count">页数: ${escapeHtml(pageCountText)} <span class="open-batch-wrap"><span class="open-link-btn-inline" role="button" onclick="window.openLinkByBatch(this)" title="按页数规则自动开 N 个标签 (autoBatchDivide)">打开${batchN}个标签</span><span class="open-batch-arrow" role="button" onclick="window.showBatchMenu(this)" title="手动选择要打开几个标签">▼</span></span></div>`
         : `<div class="tab-page-count"><span class="open-link-btn-inline" role="button" onclick="window.openLinkByBatch(this)" title="打开当前链接">打开</span></div>`;
       
       let tagsDisplay = '';
@@ -4394,7 +4394,7 @@ document.addEventListener("DOMContentLoaded", () => {
       return `
         <div class="tab-entry" data-id="${link.id}" data-url="${escapeHtml(link.url)}" data-title="${escapeHtml(link.title || link.page || '')}" data-group-id="${link.groupId || ''}" data-page-count="${getPageCountValue(link)}" data-tags="${escapeHtml(link.tags ? link.tags.map(t=>t.text).join(' ') : '')}">
           <span class="tab-index">${index}</span>
-          <input type="checkbox" class="tab-checkbox" onclick="window.updateSelectionState()">
+          <input type="checkbox" class="tab-checkbox" onclick="window.toggleTabSelection(this)">
           <div class="tab-content">
             <a href="${escapeHtml(link.url)}" class="tab-title" target="_blank" onmousedown="window.handleLinkClick(event)">${escapeHtml(link.url)}</a>
             <div class="tab-url-container">
@@ -4426,7 +4426,7 @@ document.addEventListener("DOMContentLoaded", () => {
       const pageCountValue = getPageCountValue(link);
       const batchN = pageCountValue > 600 ? 8 : pageCountValue > 350 ? 4 : pageCountValue > 250 ? 2 : 1;
       const pageCountDisplay = pageCountText
-        ? `<span class="thumb-page-count">页数: ${escapeHtml(pageCountText)} <span class="open-link-btn-inline" role="button" onclick="window.openLinkByBatch(this)" title="按页数规则自动开 N 个标签 (autoBatchDivide)">打开${batchN}个标签</span></span>`
+        ? `<span class="thumb-page-count">页数: ${escapeHtml(pageCountText)} <span class="open-batch-wrap"><span class="open-link-btn-inline" role="button" onclick="window.openLinkByBatch(this)" title="按页数规则自动开 N 个标签 (autoBatchDivide)">打开${batchN}个标签</span><span class="open-batch-arrow" role="button" onclick="window.showBatchMenu(this)" title="手动选择要打开几个标签">▼</span></span></span>`
         : `<span class="thumb-page-count"><span class="open-link-btn-inline" role="button" onclick="window.openLinkByBatch(this)" title="打开当前链接">打开</span></span>`;
       const saveTime = link.date ? `<span class="thumb-save-time">${escapeHtml(link.date)}</span>` : '';
       const sourceText = escapeHtml(link.title || link.page || '未知');
@@ -4450,7 +4450,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
       return `
         <div class="tab-entry export-thumb-entry" data-id="${link.id}" data-url="${escapeHtml(link.url)}" data-title="${escapeHtml(link.title || link.page || '')}" data-group-id="${link.groupId || ''}" data-page-count="${getPageCountValue(link)}" data-tags="${escapeHtml(link.tags ? link.tags.map(t=>t.text).join(' ') : '')}">
-          <input type="checkbox" class="tab-checkbox export-thumb-checkbox" onclick="window.updateSelectionState()">
+          <input type="checkbox" class="tab-checkbox export-thumb-checkbox" onclick="window.toggleTabSelection(this)">
           <span class="export-thumb-index">#${index}</span>
           ${snapshotHTML}
           <div class="export-thumb-detail">
@@ -4629,6 +4629,15 @@ document.addEventListener("DOMContentLoaded", () => {
         .open-link-btn-inline { display: inline-block; margin-left: 6px; padding: 1px 8px; background: #2196F3; color: #fff; border: none; border-radius: 3px; cursor: pointer; font-size: 16px; font-weight: 600; vertical-align: baseline; line-height: 1.4; user-select: none; -webkit-user-select: none; transition: background 0.15s; }
         .open-link-btn-inline:hover { background: #1976D2; }
         .open-link-btn-inline:active { background: #0D47A1; }
+        /* 手动选择打开个数：按钮 + 小箭头 + 下拉菜单 */
+        .open-batch-wrap { display: inline-flex; align-items: stretch; margin-left: 6px; vertical-align: baseline; }
+        .open-batch-wrap > .open-link-btn-inline { margin-left: 0; border-radius: 3px 0 0 3px; }
+        .open-batch-arrow { display: inline-flex; align-items: center; padding: 0 5px; background: #1976D2; color: #fff; border-radius: 0 3px 3px 0; cursor: pointer; font-size: 10px; line-height: 1.4; user-select: none; -webkit-user-select: none; transition: background 0.15s; }
+        .open-batch-arrow:hover { background: #0D47A1; }
+        .open-batch-menu { position: absolute; z-index: 30000; display: none; min-width: 112px; padding: 4px 0; background: #fff; border: 1px solid #d0d7de; border-radius: 6px; box-shadow: 0 6px 18px rgba(0,0,0,0.18); font-size: 14px; color: #24292f; }
+        .open-batch-menu-item { padding: 6px 12px; cursor: pointer; white-space: nowrap; }
+        .open-batch-menu-item:hover { background: #e8f0fe; }
+        .open-batch-menu-item.is-current { color: #1976D2; font-weight: 700; }
         .tab-note { color: #333; font-size: 0.85em; background: #FFF3E0; padding: 6px 10px; border-radius: 4px; margin-top: 6px; border-left: 3px solid #FF9800; }
         .visit-info { display: none; gap: 15px; font-size: 0.8em; margin-top: 6px; font-style: italic; color: #333; background: #FFEBEE; padding: 4px 8px; border-radius: 4px; }
         .visit-info.has-content { display: inline-flex; }
@@ -5196,7 +5205,21 @@ document.addEventListener("DOMContentLoaded", () => {
           el.nextElementSibling.classList.toggle('collapsed'); 
         };
 
-        window.updateSelectionState = () => {
+        // 同一个链接会同时存在于列表视图和缩略图视图中（DOM 里是同 id 的两份副本）。
+        // 点击某一份勾选框后，必须把同 id 的其它副本同步成同样的状态，
+        // 否则取消勾选时另一份副本仍是勾选状态，导致“取消勾选”被立刻还原。
+        window.updateSelectionState = (sourceCheckbox) => {
+          if (sourceCheckbox) {
+            const sourceEntry = sourceCheckbox.closest('.tab-entry');
+            const sourceId = sourceEntry && sourceEntry.dataset.id;
+            if (sourceId) {
+              document.querySelectorAll('.tab-entry').forEach(entry => {
+                if (entry.dataset.id !== sourceId) return;
+                const twin = entry.querySelector('.tab-checkbox');
+                if (twin) twin.checked = sourceCheckbox.checked;
+              });
+            }
+          }
           const checkedIds = new Set();
           document.querySelectorAll('.tab-checkbox:checked').forEach(cb => {
             const entry = cb.closest('.tab-entry');
@@ -5211,6 +5234,17 @@ document.addEventListener("DOMContentLoaded", () => {
           const btn = document.getElementById('openSelectedButton');
           btn.disabled = checkedIds.size === 0;
           btn.textContent = checkedIds.size > 0 ? \`打开选中的 (\${checkedIds.size})\` : '打开选中的链接';
+        };
+
+        window.toggleTabSelection = (checkbox) => {
+          window.updateSelectionState(checkbox);
+        };
+
+        window.clearTabSelection = () => {
+          document.querySelectorAll('.tab-checkbox').forEach(cb => {
+            cb.checked = false;
+          });
+          window.updateSelectionState();
         };
 
         window.searchTabs = (q) => {
@@ -5280,6 +5314,10 @@ document.addEventListener("DOMContentLoaded", () => {
               window.recordVisit(e);
             }
           });
+          // 打开选中链接后自动清空勾选状态
+          if (sel === '.tab-checkbox:checked') {
+            window.clearTabSelection();
+          }
         };
 
         // AI 魔改：根据页数自动计算默认批次数
@@ -5291,19 +5329,136 @@ document.addEventListener("DOMContentLoaded", () => {
           return 1;
         };
 
-        // 单卡片按规则批量开标签
+        // 手动指定的打开个数（本次打开的这个 HTML 页面内有效，刷新后回到自动值）
+        window.BATCH_OVERRIDES = window.BATCH_OVERRIDES || {};
+        // 下拉菜单里可选的手动个数
+        window.BATCH_MENU_VALUES = [1, 2, 3, 4, 5, 6, 7, 8];
+
+        // 取实际要打开的个数：手动值优先，否则按页数规则
+        window.resolveBatchCount = (linkId, pages) => {
+          const manual = window.BATCH_OVERRIDES[String(linkId)];
+          if (manual) return manual;
+          return window.autoBatchDivide(pages || 0);
+        };
+
+        window.getBatchCount = (entry) => {
+          if (!entry) return 1;
+          return window.resolveBatchCount(entry.dataset.id, parseInt(entry.dataset.pageCount, 10) || 0);
+        };
+
+        // 单卡片批量开标签
         window.openLinkByBatch = (btn) => {
           const entry = btn.closest('.tab-entry');
           if (!entry) return;
           const url = entry.dataset.url;
           if (!url) return;
-          const pages = parseInt(entry.dataset.pageCount, 10) || 0;
-          const n = window.autoBatchDivide(pages);
+          const n = window.getBatchCount(entry);
           for (let i = 0; i < n; i++) {
             window.open(url, '_blank', 'noopener,noreferrer');
           }
           if (typeof window.recordVisit === 'function') window.recordVisit(entry);
         };
+
+        window.hideBatchMenu = () => {
+          const menu = document.getElementById('batchCountMenu');
+          if (menu) menu.style.display = 'none';
+          window.batchMenuEntryId = null;
+        };
+
+        window.ensureBatchMenu = () => {
+          let menu = document.getElementById('batchCountMenu');
+          if (menu) return menu;
+          menu = document.createElement('div');
+          menu.id = 'batchCountMenu';
+          menu.className = 'open-batch-menu';
+          const items = ['<div class="open-batch-menu-item" data-n="auto">自动</div>'];
+          window.BATCH_MENU_VALUES.forEach(v => {
+            items.push('<div class="open-batch-menu-item" data-n="' + v + '">' + v + ' 个</div>');
+          });
+          menu.innerHTML = items.join('');
+          menu.addEventListener('click', (e) => {
+            const item = e.target.closest('.open-batch-menu-item');
+            if (!item) return;
+            e.stopPropagation();
+            const raw = item.dataset.n;
+            window.setBatchCount(window.batchMenuEntryId, raw === 'auto' ? null : parseInt(raw, 10));
+          });
+          document.body.appendChild(menu);
+          return menu;
+        };
+
+        // 点小箭头：在它下面弹出下拉菜单
+        window.showBatchMenu = (arrow) => {
+          const entry = arrow.closest('.tab-entry');
+          if (!entry) return;
+          if (window.batchMenuEntryId === entry.dataset.id && window._batchMenuAnchor === arrow) {
+            const opened = document.getElementById('batchCountMenu');
+            if (opened && opened.style.display === 'block') { window.hideBatchMenu(); return; }
+          }
+          const menu = window.ensureBatchMenu();
+          window._batchMenuAnchor = arrow;
+          window.batchMenuEntryId = entry.dataset.id;
+
+          const autoValue = window.autoBatchDivide(parseInt(entry.dataset.pageCount, 10) || 0);
+          const isAuto = !window.BATCH_OVERRIDES[String(entry.dataset.id)];
+          const current = window.getBatchCount(entry);
+          menu.querySelectorAll('.open-batch-menu-item').forEach(item => {
+            const raw = item.dataset.n;
+            if (raw === 'auto') {
+              item.textContent = '自动（' + autoValue + '）';
+              item.classList.toggle('is-current', isAuto);
+            } else {
+              item.classList.toggle('is-current', !isAuto && parseInt(raw, 10) === current);
+            }
+          });
+
+          menu.style.display = 'block';
+          menu.style.left = '0px';
+          menu.style.top = '0px';
+          const rect = arrow.getBoundingClientRect();
+          const menuW = menu.offsetWidth;
+          const menuH = menu.offsetHeight;
+          const scrollX = window.scrollX || window.pageXOffset || 0;
+          const scrollY = window.scrollY || window.pageYOffset || 0;
+          const viewW = document.documentElement.clientWidth;
+          const viewH = document.documentElement.clientHeight;
+          let left = rect.right + scrollX - menuW;
+          if (left < scrollX + 4) left = scrollX + 4;
+          if (left + menuW > scrollX + viewW - 4) left = scrollX + viewW - 4 - menuW;
+          let top = rect.bottom + scrollY + 2;
+          if (rect.bottom + menuH + 6 > viewH) top = rect.top + scrollY - menuH - 2;
+          menu.style.left = left + 'px';
+          menu.style.top = top + 'px';
+        };
+
+        // 设置某条链接要打开的个数；n 传 null 表示恢复自动
+        window.setBatchCount = (linkId, n) => {
+          if (linkId === undefined || linkId === null) { window.hideBatchMenu(); return; }
+          const key = String(linkId);
+          if (n === null) delete window.BATCH_OVERRIDES[key];
+          else window.BATCH_OVERRIDES[key] = n;
+
+          document.querySelectorAll('.tab-entry').forEach(entry => {
+            if (entry.dataset.id !== key) return;
+            if (!entry.querySelector('.open-batch-arrow')) return;
+            const btn = entry.querySelector('.open-link-btn-inline');
+            if (!btn) return;
+            btn.textContent = '打开' + window.getBatchCount(entry) + '个标签';
+          });
+          window.hideBatchMenu();
+        };
+
+        // 点空白处、按 Esc、滚动页面 都关掉菜单
+        document.addEventListener('click', (e) => {
+          const menu = document.getElementById('batchCountMenu');
+          if (!menu || menu.style.display !== 'block') return;
+          if (e.target.closest('#batchCountMenu') || e.target.closest('.open-batch-arrow')) return;
+          window.hideBatchMenu();
+        });
+        document.addEventListener('keydown', (e) => {
+          if (e.key === 'Escape') window.hideBatchMenu();
+        });
+        window.addEventListener('scroll', () => { window.hideBatchMenu(); }, true);
 
         window.toggleAllUrls = () => {
           const expanding = !window.allUrlsExpanded;
@@ -5662,9 +5817,9 @@ document.addEventListener("DOMContentLoaded", () => {
             .replace(/'/g, '&#39;');
           const saveTime = link.date ? '<div class="tab-save-time">保存时间: ' + escapeText(link.date) + '</div>' : '';
           const pageCount = getPageCountValue(link);
-          const batchN = pageCount > 600 ? 8 : pageCount > 350 ? 4 : pageCount > 250 ? 2 : 1;
+          const batchN = window.resolveBatchCount(link.id, pageCount);
           const pageCountDisplay = pageCount > 0
-            ? '<div class="tab-page-count">页数: ' + pageCount + ' 页 <span class="open-link-btn-inline" role="button" onclick="window.openLinkByBatch(this)" title="按页数规则自动开 N 个标签 (autoBatchDivide)">打开' + batchN + '个标签</span></div>'
+            ? '<div class="tab-page-count">页数: ' + pageCount + ' 页 <span class="open-batch-wrap"><span class="open-link-btn-inline" role="button" onclick="window.openLinkByBatch(this)" title="按页数规则自动开 N 个标签 (autoBatchDivide)">打开' + batchN + '个标签</span><span class="open-batch-arrow" role="button" onclick="window.showBatchMenu(this)" title="手动选择要打开几个标签">▼</span></span></div>'
             : '<div class="tab-page-count"><span class="open-link-btn-inline" role="button" onclick="window.openLinkByBatch(this)" title="打开当前链接">打开</span></div>';
           
           let tagsDisplay = '';
@@ -5690,7 +5845,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
           return '<div class="tab-entry" data-id="' + link.id + '" data-url="' + escapeText(link.url) + '" data-title="' + escapeText(link.title || link.page || '') + '" data-page-count="' + pageCount + '" data-tags="' + escapeText(link.tags ? link.tags.map(t => t.text).join(' ') : '') + '">' +
             '<span class="tab-index">' + (i + 1) + '</span>' +
-            '<input type="checkbox" class="tab-checkbox" onclick="window.updateSelectionState()">' +
+            '<input type="checkbox" class="tab-checkbox" onclick="window.toggleTabSelection(this)">' +
             '<div class="tab-content">' +
             '<a href="' + escapeText(link.url) + '" class="tab-title" target="_blank" onmousedown="window.handleLinkClick(event)">' + escapeText(link.url) + '</a>' +
             '<div class="tab-url-container">' +
@@ -5714,9 +5869,9 @@ document.addEventListener("DOMContentLoaded", () => {
             .replace(/'/g, '&#39;');
           const snapshotData = ALL_SNAPSHOTS_DATA[link.id];
           const pageCount = getPageCountValue(link);
-          const batchN = pageCount > 600 ? 8 : pageCount > 350 ? 4 : pageCount > 250 ? 2 : 1;
+          const batchN = window.resolveBatchCount(link.id, pageCount);
           const pageCountDisplay = pageCount > 0
-            ? '<span class="thumb-page-count">页数: ' + pageCount + ' 页 <span class="open-link-btn-inline" role="button" onclick="window.openLinkByBatch(this)" title="按页数规则自动开 N 个标签 (autoBatchDivide)">打开' + batchN + '个标签</span></span>'
+            ? '<span class="thumb-page-count">页数: ' + pageCount + ' 页 <span class="open-batch-wrap"><span class="open-link-btn-inline" role="button" onclick="window.openLinkByBatch(this)" title="按页数规则自动开 N 个标签 (autoBatchDivide)">打开' + batchN + '个标签</span><span class="open-batch-arrow" role="button" onclick="window.showBatchMenu(this)" title="手动选择要打开几个标签">▼</span></span></span>'
             : '<span class="thumb-page-count"><span class="open-link-btn-inline" role="button" onclick="window.openLinkByBatch(this)" title="打开当前链接">打开</span></span>';
           const saveTime = link.date ? '<span class="thumb-save-time">' + escapeText(link.date) + '</span>' : '';
           let markerHTML = '';
@@ -5737,7 +5892,7 @@ document.addEventListener("DOMContentLoaded", () => {
             tagsDisplay = '<div class="export-thumb-tags">' + link.tags.map(t => '<span style="background:' + t.color + '; color:' + (t.textColor || '#ffffff') + ';">' + escapeText(t.text) + '</span>').join('') + '</div>';
           }
           return '<div class="tab-entry export-thumb-entry" data-id="' + link.id + '" data-url="' + escapeText(link.url) + '" data-title="' + escapeText(link.title || link.page || '') + '" data-page-count="' + pageCount + '" data-tags="' + escapeText(link.tags ? link.tags.map(t => t.text).join(' ') : '') + '">' +
-            '<input type="checkbox" class="tab-checkbox export-thumb-checkbox" onclick="window.updateSelectionState()">' +
+            '<input type="checkbox" class="tab-checkbox export-thumb-checkbox" onclick="window.toggleTabSelection(this)">' +
             '<span class="export-thumb-index">#' + (i + 1) + '</span>' +
             snapshotHTML +
             '<div class="export-thumb-detail">' +
