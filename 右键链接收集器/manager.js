@@ -127,8 +127,7 @@ document.addEventListener("DOMContentLoaded", () => {
   const favoriteLinksList = document.getElementById("favoriteLinksList");
   const favoriteTagsList = document.getElementById("favoriteTagsList");
   const favoriteSidebarTitles = favoriteSidebar ? favoriteSidebar.querySelectorAll('.favorite-sidebar-title') : [];
-  const favoriteTagInput = document.getElementById("favoriteTagInput");
-  const favoriteTagAddBtn = document.getElementById("favoriteTagAddBtn");
+  const favoriteTagManageBtn = document.getElementById("favoriteTagManageBtn");
 
   const headerLeft = document.querySelector(".header-left");
   const toolbarActions = document.querySelector(".toolbar-actions");
@@ -262,6 +261,32 @@ document.addEventListener("DOMContentLoaded", () => {
     return String(value || '').replace(/\s+/g, ' ').trim();
   }
 
+  // 快捷标签：{ text, color, textColor }。兼容旧版本只存纯文字的情况
+  const FAVORITE_TAG_DEFAULT_COLOR = '#0B74FF';
+  const FAVORITE_TAG_DEFAULT_TEXT_COLOR = '#ffffff';
+
+  function normalizeFavoriteSearchTagEntry(entry) {
+    const source = entry && typeof entry === 'object' ? entry : { text: entry };
+    const text = normalizeFavoriteSearchTag(source.text);
+    if (!text) return null;
+    return {
+      text,
+      color: source.color || FAVORITE_TAG_DEFAULT_COLOR,
+      textColor: source.textColor || FAVORITE_TAG_DEFAULT_TEXT_COLOR
+    };
+  }
+
+  function normalizeFavoriteSearchTagList(list) {
+    const result = [];
+    (Array.isArray(list) ? list : []).forEach((entry) => {
+      const normalized = normalizeFavoriteSearchTagEntry(entry);
+      if (!normalized) return;
+      const exists = result.some(tag => tag.text.toLowerCase() === normalized.text.toLowerCase());
+      if (!exists) result.push(normalized);
+    });
+    return result;
+  }
+
   function normalizeGroupId(id) {
     const text = String(id ?? '').trim();
     return text && text !== 'undefined' && text !== 'null' ? text : '';
@@ -383,27 +408,29 @@ document.addEventListener("DOMContentLoaded", () => {
     setTimeout(() => card.classList.remove('favorite-jump-highlight'), 900);
   }
 
-  function applyFavoriteSearchTag(tagText) {
-    const text = normalizeFavoriteSearchTag(tagText);
+  function applyFavoriteSearchTag(tag) {
+    const text = normalizeFavoriteSearchTag(tag && typeof tag === 'object' ? tag.text : tag);
     if (!text) return;
     filterByKeyword(text);
   }
 
   function addFavoriteSearchTag(value) {
-    const text = normalizeFavoriteSearchTag(value);
-    if (!text) return;
-    const exists = favoriteSearchTags.some(tag => tag.toLowerCase() === text.toLowerCase());
-    if (!exists) {
-      favoriteSearchTags.push(text);
-      saveFavoriteSidebarData();
-      renderFavoriteSidebar();
+    const entry = normalizeFavoriteSearchTagEntry(value);
+    if (!entry) return;
+    const existsIndex = favoriteSearchTags.findIndex(tag => tag.text.toLowerCase() === entry.text.toLowerCase());
+    if (existsIndex >= 0) {
+      favoriteSearchTags[existsIndex] = entry;
+    } else {
+      favoriteSearchTags.push(entry);
     }
-    if (favoriteTagInput) favoriteTagInput.value = '';
+    saveFavoriteSidebarData();
+    renderFavoriteSidebar();
   }
 
-  function removeFavoriteSearchTag(tagText) {
-    const text = normalizeFavoriteSearchTag(tagText);
-    favoriteSearchTags = favoriteSearchTags.filter(tag => tag !== text);
+  function removeFavoriteSearchTag(tag) {
+    const text = normalizeFavoriteSearchTag(tag && typeof tag === 'object' ? tag.text : tag);
+    if (!text) return;
+    favoriteSearchTags = favoriteSearchTags.filter(item => item.text !== text);
     saveFavoriteSidebarData();
     renderFavoriteSidebar();
   }
@@ -478,10 +505,12 @@ document.addEventListener("DOMContentLoaded", () => {
         const item = document.createElement('button');
         item.type = 'button';
         item.className = 'favorite-tag-pill';
-        item.title = `搜索：${tag}`;
+        item.style.background = tag.color;
+        item.style.color = tag.textColor;
+        item.title = `搜索：${tag.text}`;
         item.innerHTML = `
-          <span class="favorite-tag-pill-text">${escapeHtml(tag)}</span>
-          <span class="favorite-tag-pill-remove" data-tag="${escapeHtml(tag)}" title="删除快捷标签">✕</span>
+          <span class="favorite-tag-pill-text">${escapeHtml(tag.text)}</span>
+          <span class="favorite-tag-pill-remove" data-tag="${escapeHtml(tag.text)}" title="删除快捷标签" style="color: inherit; opacity: 0.75;">✕</span>
         `;
         item.addEventListener('click', (e) => {
           if (e.target.closest('.favorite-tag-pill-remove')) return;
@@ -503,6 +532,274 @@ document.addEventListener("DOMContentLoaded", () => {
         e.stopPropagation();
         removeFavoriteSearchTag(e.currentTarget.dataset.tag);
       });
+    });
+  }
+
+  // 编辑侧栏快捷标签：界面与条目的“编辑标签”一致，操作对象是侧栏的快捷标签
+  function showFavoriteTagDialog() {
+    if (!favoriteTagsList) return;
+    let currentFavoriteTags = favoriteSearchTags.map(tag => ({ text: tag.text, color: tag.color, textColor: tag.textColor }));
+    const toHex = (value, fallback) => (/^#[0-9a-fA-F]{6}$/.test(String(value || '')) ? value : fallback);
+
+    const dialog = document.createElement('div');
+    dialog.className = 'modal show';
+    dialog.style.zIndex = '10000';
+    dialog.innerHTML = `
+      <div class="modal-content" style="width: min(860px, 92vw); max-width: min(860px, 92vw); max-height: 88vh; z-index: 10001;">
+        <div class="modal-header">
+          <h2>编辑标签</h2>
+          <button class="modal-close" id="favTagDialogClose">✕</button>
+        </div>
+        <div class="modal-body" style="max-height: calc(88vh - 90px); overflow-y: auto;">
+          <p style="margin-bottom: 15px; color: var(--text-muted); font-size: 14px;">
+            侧栏快捷标签（点击标签即在上方搜索框过滤）。点击胶囊可改颜色和文字，也可以在下方标签列表里直接挑选已有标签。
+          </p>
+
+          <div id="favTagsContainer" style="min-height: 88px; padding: 10px; border: 2px solid var(--border); border-radius: 6px; background: var(--bg); display: flex; flex-direction: column; gap: 8px;"></div>
+
+          <div class="tag-input-group" style="align-items: center; gap: 12px; flex-wrap: wrap;">
+            <input type="text" id="favTagTextInput" placeholder="输入新标签..." maxlength="80" style="flex: 1; min-width: 150px;">
+            <div style="display:flex; gap:12px; align-items:center; flex-shrink: 0;">
+              <label style="font-size:13px; font-weight:bold; color:var(--text-muted); display:flex; align-items:center; gap:6px; cursor:pointer;" title="自定义胶囊背景色">
+                背景<input type="color" id="favTagColorInput" value="#0B74FF" style="width:40px;height:40px;padding:2px;cursor:pointer;border:2px solid var(--border);border-radius:6px;">
+              </label>
+              <label style="font-size:13px; font-weight:bold; color:var(--text-muted); display:flex; align-items:center; gap:6px; cursor:pointer;" title="自定义胶囊内文字的颜色">
+                文字<input type="color" id="favTagTextColorInput" value="#ffffff" style="width:40px;height:40px;padding:2px;cursor:pointer;border:2px solid var(--border);border-radius:6px;">
+              </label>
+            </div>
+            <button class="btn btn-primary" id="favAddTagBtn" style="padding: 8px 20px; white-space: nowrap; height: 40px;">添加</button>
+          </div>
+
+          <div style="margin-top: 15px; border-top: 1px solid var(--border); padding-top: 10px;">
+            <div style="font-size: 13px; color: var(--text-muted); margin-bottom: 8px;">标签列表 (点击直接添加)：</div>
+            <div style="position: relative; margin-bottom: 10px;">
+              <input
+                type="text"
+                id="favHistoricalTagSearchInput"
+                placeholder="搜索标签：空格分隔，匹配任意一个"
+                style="width: 100%; padding: 10px 42px 10px 12px; border: 2px solid var(--border); border-radius: 6px; font-size: 14px; box-sizing: border-box;"
+              >
+              <button
+                type="button"
+                id="favHistoricalTagSearchClear"
+                title="清空搜索"
+                style="display: none; position: absolute; right: 10px; top: 50%; transform: translateY(-50%); width: 24px; height: 24px; border: none; background: transparent; color: #5f6368; font-size: 22px; line-height: 24px; cursor: pointer; padding: 0;"
+              >×</button>
+            </div>
+            <div id="favHistoricalTagsContainer" style="display: flex; flex-direction: column; gap: 8px; max-height: 180px; overflow-y: auto;"></div>
+          </div>
+
+          <div style="display: flex; gap: 10px; justify-content: flex-end; align-items: center; margin-top: 25px; flex-wrap: wrap;">
+            <button class="btn btn-secondary" id="favTagDialogCancel">取消</button>
+            <button class="btn btn-danger" id="favClearTags">清空全标签</button>
+            <button class="btn btn-success" id="favConfirmTags">保存</button>
+          </div>
+        </div>
+      </div>
+    `;
+    document.body.appendChild(dialog);
+
+    const container = dialog.querySelector('#favTagsContainer');
+    const textInput = dialog.querySelector('#favTagTextInput');
+    const colorInput = dialog.querySelector('#favTagColorInput');
+    const textColorInput = dialog.querySelector('#favTagTextColorInput');
+    const historicalContainer = dialog.querySelector('#favHistoricalTagsContainer');
+    const historicalTagSearchInput = dialog.querySelector('#favHistoricalTagSearchInput');
+    const historicalTagSearchClear = dialog.querySelector('#favHistoricalTagSearchClear');
+
+    // 收集所有条目上已存在的标签，供直接挑选
+    const allExistingTags = [];
+    const tagMap = new Map();
+    allLinks.forEach(link => {
+      if (!Array.isArray(link.tags)) return;
+      link.tags.forEach(tag => {
+        if (!tag || !tag.text || tagMap.has(tag.text)) return;
+        tagMap.set(tag.text, true);
+        allExistingTags.push({
+          text: tag.text,
+          color: toHex(tag.color, FAVORITE_TAG_DEFAULT_COLOR),
+          textColor: toHex(tag.textColor, FAVORITE_TAG_DEFAULT_TEXT_COLOR)
+        });
+      });
+    });
+
+    function createCapsule(tag, options = {}) {
+      const { editable = false, historical = false, index = -1 } = options;
+      const span = document.createElement('span');
+      const textC = toHex(tag.textColor, FAVORITE_TAG_DEFAULT_TEXT_COLOR);
+      const isUrl = isTagUrl(tag.text);
+
+      span.className = `edit-tag-capsule ${isUrl ? 'edit-tag-capsule-url' : 'edit-tag-capsule-text'}`;
+      span.style.background = toHex(tag.color, FAVORITE_TAG_DEFAULT_COLOR);
+      span.style.color = textC;
+      span.style.cursor = 'pointer';
+      span.title = editable ? '点击重新编辑标签' : '点击直接添加此标签';
+
+      if (historical) {
+        span.style.opacity = '0.7';
+        span.onmouseenter = () => span.style.opacity = '1';
+        span.onmouseleave = () => span.style.opacity = '0.7';
+      }
+
+      span.innerHTML = `
+        <span class="edit-tag-main">${escapeHtml(tag.text)}</span>
+        ${editable ? `<span class="edit-tag-delete" data-index="${index}">✕</span>` : ''}
+      `;
+
+      span.addEventListener('click', (e) => {
+        if (editable) {
+          if (e.target.classList.contains('edit-tag-delete')) return;
+          textInput.value = tag.text;
+          colorInput.value = toHex(tag.color, FAVORITE_TAG_DEFAULT_COLOR);
+          textColorInput.value = textC;
+          textInput.focus();
+          return;
+        }
+
+        const existingIndex = currentFavoriteTags.findIndex(t => t.text === tag.text);
+        if (existingIndex >= 0) {
+          currentFavoriteTags[existingIndex].color = toHex(tag.color, FAVORITE_TAG_DEFAULT_COLOR);
+          currentFavoriteTags[existingIndex].textColor = textC;
+        } else {
+          currentFavoriteTags.push({ text: tag.text, color: toHex(tag.color, FAVORITE_TAG_DEFAULT_COLOR), textColor: textC });
+        }
+        renderCurrentTags();
+      });
+
+      return span;
+    }
+
+    function renderTagSection(containerEl, title, tags, options = {}) {
+      if (!tags.length) return;
+
+      const section = document.createElement('div');
+      section.className = 'edit-tag-section';
+
+      const titleEl = document.createElement('div');
+      titleEl.className = 'edit-tag-section-title';
+      titleEl.textContent = `${title} (${tags.length})`;
+
+      const body = document.createElement('div');
+      body.className = 'edit-tag-section-body';
+
+      tags.forEach(tag => {
+        const capsule = createCapsule(tag, {
+          ...options,
+          index: options.editable ? currentFavoriteTags.indexOf(tag) : -1
+        });
+        body.appendChild(capsule);
+      });
+
+      section.appendChild(titleEl);
+      section.appendChild(body);
+      containerEl.appendChild(section);
+    }
+
+    function renderHistoricalTags(searchText = '') {
+      const keyword = searchText.trim().toLowerCase();
+      const filteredTags = keyword
+        ? allExistingTags.filter(tag => {
+            const text = (tag.text || '').toLowerCase();
+            const keywords = keyword.split(/\s+/).map(part => part.trim()).filter(Boolean);
+            return keywords.length > 0 && keywords.some(part => text.includes(part));
+          })
+        : allExistingTags;
+
+      if (filteredTags.length === 0) {
+        historicalContainer.innerHTML = keyword
+          ? '<span style="font-size: 12px; color: var(--text-muted); font-style: italic;">没有找到匹配的标签</span>'
+          : '<span style="font-size: 12px; color: var(--text-muted); font-style: italic;">暂无可用标签</span>';
+        return;
+      }
+
+      historicalContainer.innerHTML = '';
+      renderTagSection(historicalContainer, '文字标签', filteredTags.filter(tag => !isTagUrl(tag.text)), { historical: true });
+      renderTagSection(historicalContainer, '网址标签', filteredTags.filter(tag => isTagUrl(tag.text)), { historical: true });
+    }
+
+    function updateHistoricalSearchClearButton() {
+      historicalTagSearchClear.style.display = historicalTagSearchInput.value.trim() ? 'block' : 'none';
+    }
+
+    function renderCurrentTags() {
+      container.innerHTML = '';
+      if (currentFavoriteTags.length === 0) {
+        container.innerHTML = '<span style="color:var(--text-muted); font-size:13px; font-style:italic;">暂无标签</span>';
+        return;
+      }
+
+      renderTagSection(container, '文字标签', currentFavoriteTags.filter(tag => !isTagUrl(tag.text)), { editable: true });
+      renderTagSection(container, '网址标签', currentFavoriteTags.filter(tag => isTagUrl(tag.text)), { editable: true });
+
+      container.querySelectorAll('.edit-tag-delete').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          const idx = parseInt(e.currentTarget.dataset.index, 10);
+          currentFavoriteTags.splice(idx, 1);
+          renderCurrentTags();
+        });
+      });
+    }
+
+    function addNewTag() {
+      const text = textInput.value.trim();
+      const color = colorInput.value;
+      const textColor = textColorInput.value;
+      if (text) {
+        const existingIndex = currentFavoriteTags.findIndex(t => t.text === text);
+        if (existingIndex >= 0) {
+          currentFavoriteTags[existingIndex].color = color;
+          currentFavoriteTags[existingIndex].textColor = textColor;
+        } else {
+          currentFavoriteTags.push({ text, color, textColor });
+        }
+        textInput.value = '';
+        renderCurrentTags();
+      }
+      textInput.focus();
+    }
+
+    renderCurrentTags();
+    renderHistoricalTags();
+    textInput.focus();
+
+    dialog.querySelector('#favAddTagBtn').addEventListener('click', addNewTag);
+    textInput.addEventListener('keypress', (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        addNewTag();
+      }
+    });
+    historicalTagSearchInput.addEventListener('input', (e) => {
+      updateHistoricalSearchClearButton();
+      renderHistoricalTags(e.target.value);
+    });
+    historicalTagSearchClear.addEventListener('click', () => {
+      historicalTagSearchInput.value = '';
+      updateHistoricalSearchClearButton();
+      renderHistoricalTags('');
+      historicalTagSearchInput.focus();
+    });
+    updateHistoricalSearchClearButton();
+
+    dialog.querySelector('#favTagDialogClose').addEventListener('click', () => dialog.remove());
+    dialog.querySelector('#favTagDialogCancel').addEventListener('click', () => dialog.remove());
+
+    dialog.querySelector('#favClearTags').addEventListener('click', () => {
+      currentFavoriteTags = [];
+      renderCurrentTags();
+    });
+
+    dialog.querySelector('#favConfirmTags').addEventListener('click', () => {
+      favoriteSearchTags = normalizeFavoriteSearchTagList(currentFavoriteTags);
+      saveFavoriteSidebarData();
+      renderFavoriteSidebar();
+      dialog.remove();
+    });
+
+    // 点击背景关闭
+    dialog.addEventListener('click', (e) => {
+      if (e.target === dialog) dialog.remove();
     });
   }
 
@@ -919,9 +1216,7 @@ document.addEventListener("DOMContentLoaded", () => {
       favoriteLinkIds = Array.isArray(res[FAVORITE_LINK_IDS_STORAGE_KEY])
         ? res[FAVORITE_LINK_IDS_STORAGE_KEY].map(normalizeFavoriteId)
         : [];
-      favoriteSearchTags = Array.isArray(res[FAVORITE_SEARCH_TAGS_STORAGE_KEY])
-        ? res[FAVORITE_SEARCH_TAGS_STORAGE_KEY].map(normalizeFavoriteSearchTag).filter(Boolean)
-        : [];
+      favoriteSearchTags = normalizeFavoriteSearchTagList(res[FAVORITE_SEARCH_TAGS_STORAGE_KEY]);
       
       // 迁移旧版 note 到 tags
       if (localStorage.getItem(FAVORITE_LINK_ORDER_MIGRATED_KEY) !== 'true') {
@@ -4083,7 +4378,7 @@ document.addEventListener("DOMContentLoaded", () => {
       if(importOptions.groups){const groups=Array.isArray(data.groups)?data.groups:[]; if(overwrite){allGroups=ensureValidGroups(groups,importOptions.links?sourceLinks:allLinks);} else {const byName=new Map(allGroups.map(g=>[String(g.name||'').trim().toLowerCase(),g]));let id=Math.max(0,...allGroups.map(g=>Number(g.id)||0))+1;groups.forEach(g=>{const k=String(g.name||'').trim().toLowerCase(),e=byName.get(k);if(e){oldGroups[g.id]=e.id;return;}const n={...g,id:String(id++),name:String(g.name||'未命名分组').trim()||'未命名分组'};allGroups.push(n);byName.set(k,n);oldGroups[g.id]=n.id;});}}
       if(importOptions.links){if(overwrite){allLinks=sourceLinks.map(l=>{const n={...l};if(n.groupId)n.groupId=oldGroups[n.groupId]??n.groupId;oldToFinal[l.id]=n.id;snapMap[l.id]=n.id;return n;});await DB.clearAllSnapshots();added=allLinks.length;}else{let id=Math.max(0,...allLinks.map(l=>Number(l.id)||0))+1;const byUrl=getLinkByUrlMap(allLinks);sourceLinks.forEach(l=>{const k=getUrlKey(l.url),e=k?byUrl.get(k):null;if(e){oldToFinal[l.id]=e.id;}else{const n={...l,id:id++};if(n.groupId)n.groupId=oldGroups[n.groupId]??n.groupId;allLinks.push(n);if(k)byUrl.set(k,n);oldToFinal[l.id]=n.id;snapMap[l.id]=n.id;added++;}});}} else {const byUrl=getLinkByUrlMap(allLinks);sourceLinks.forEach(l=>{const e=byUrl.get(getUrlKey(l.url));if(e)oldToFinal[l.id]=e.id;});}
       if(importOptions.favorites){const ids=(data.favoriteLinkIds||[]).map(id=>oldToFinal[id]??oldToFinal[String(id)]).filter(id=>id!=null);favoriteLinkIds=overwrite?ids.map(normalizeFavoriteId):Array.from(new Set([...favoriteLinkIds,...ids].map(String))).map(normalizeFavoriteId);}
-      if(importOptions.tags){const tags=(data.favoriteSearchTags||[]).map(normalizeFavoriteSearchTag).filter(Boolean);favoriteSearchTags=overwrite?Array.from(new Set(tags)):Array.from(new Set([...favoriteSearchTags,...tags]));}
+      if(importOptions.tags){const tags=normalizeFavoriteSearchTagList(data.favoriteSearchTags);favoriteSearchTags=overwrite?tags:normalizeFavoriteSearchTagList([...favoriteSearchTags,...tags]);}
       allGroups=ensureValidGroups(allGroups,allLinks); updateImportProgress('正在逐条保存快照...',68,''); let snapshots=0;
       await streamImportJson(file,async(id,val)=>{const target=snapMap[id]??snapMap[String(id)];if(target){await DB.saveSnapshot(target,val);snapshots++;}},loaded=>{const percent=68+Math.min(26,Math.floor((loaded/Math.max(file.size,1))*26));updateImportProgress(`正在保存快照 ${snapshots}...`,percent,`${Math.round((loaded/Math.max(file.size,1))*100)}%`);});
       chrome.storage.local.set({links:allLinks,groups:allGroups,[FAVORITE_LINK_IDS_STORAGE_KEY]:favoriteLinkIds,[FAVORITE_SEARCH_TAGS_STORAGE_KEY]:favoriteSearchTags},()=>{
@@ -6265,15 +6560,8 @@ document.addEventListener("DOMContentLoaded", () => {
     setFavoriteSidebarOpen(false);
   });
 
-  favoriteTagAddBtn?.addEventListener('click', () => {
-    addFavoriteSearchTag(favoriteTagInput?.value || '');
-  });
-
-  favoriteTagInput?.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter') {
-      e.preventDefault();
-      addFavoriteSearchTag(e.currentTarget.value);
-    }
+  favoriteTagManageBtn?.addEventListener('click', () => {
+    showFavoriteTagDialog();
   });
 
   document.addEventListener('keydown', (e) => {
