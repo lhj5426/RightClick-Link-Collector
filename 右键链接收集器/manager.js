@@ -5755,6 +5755,34 @@ document.addEventListener("DOMContentLoaded", () => {
         });
         window.addEventListener('scroll', () => { window.hideBatchMenu(); }, true);
 
+        // 点击卡片空白处 = 勾选/取消勾选（省得去瞄准那个小方框）
+        // 卡片里自带动作的元素不参与：链接、按钮、勾选框、显示来源、打开N个标签、快照图、已下载/未下载
+        window.isCardActionTarget = (target, entry) => {
+          let node = target;
+          while (node && node !== entry) {
+            const tag = node.tagName;
+            if (tag === 'A' || tag === 'BUTTON' || tag === 'INPUT' || tag === 'LABEL' || tag === 'SELECT' || tag === 'TEXTAREA') return true;
+            if (node.hasAttribute && node.hasAttribute('onclick')) return true;
+            node = node.parentElement;
+          }
+          return false;
+        };
+
+        document.addEventListener('click', (e) => {
+          if (e.button !== 0) return;
+          const target = e.target;
+          if (!target || !target.closest) return;
+          const entry = target.closest('.tab-entry');
+          if (!entry) return;
+          if (window.isCardActionTarget(target, entry)) return;
+          // 正在拖选文字时不勾选，避免误触
+          if (window.getSelection && String(window.getSelection()).trim()) return;
+          const checkbox = entry.querySelector('.tab-checkbox');
+          if (!checkbox) return;
+          checkbox.checked = !checkbox.checked;
+          window.updateSelectionState(checkbox);
+        });
+
         window.toggleAllUrls = () => {
           const expanding = !window.allUrlsExpanded;
           const active = document.querySelector('.views > .active');
