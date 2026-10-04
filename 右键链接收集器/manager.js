@@ -4907,7 +4907,7 @@ document.addEventListener("DOMContentLoaded", () => {
         .tabs-container { background: #fff; padding: 20px; border-radius: 8px; }
         .tab-entry { padding: 15px; border: 2px solid #e3e7eb; border-radius: 6px; margin-bottom: 8px; display: flex; align-items: flex-start; gap: 12px; transition: background 0.2s, border-color 0.2s, box-shadow 0.2s; }
         .tab-entry:hover { background: #f9f9f9; border-color: #4a90e2; box-shadow: 0 0 0 1px #4a90e2; }
-        .tab-entry.selected { background: #e3f2fd; border-color: #bbdefb; }
+        .tab-entry.selected { background: #FFE0B2; border-color: #FB8C00; box-shadow: 0 0 0 3px rgba(251,140,0,0.55), 0 4px 14px rgba(251,140,0,0.35); }
         .tab-entry.hidden { display: none; }
         .tab-index { min-width: 30px; text-align: right; font-weight: bold; color: #666; font-size: 14px; flex-shrink: 0; }
         .tab-checkbox { margin-top: 4px; cursor: pointer; flex-shrink: 0; }
@@ -4995,7 +4995,7 @@ document.addEventListener("DOMContentLoaded", () => {
         .export-thumb-grid { display: grid; grid-template-columns: repeat(var(--thumb-cols, 2), minmax(0, 1fr)); gap: 22px; align-items: start; }
         .export-thumb-entry { position: relative; display: flex; flex-direction: column; gap: 0; padding: 0; overflow: hidden; border-radius: 8px; background: #fff; border: 1px solid #e3e7eb; margin-bottom: 0; align-items: stretch; }
         .export-thumb-entry:hover { background: #fff; border-color: #b9d7ff; box-shadow: 0 0 0 1px #b9d7ff; }
-        .export-thumb-entry.selected { background: #eaf5ff; border-color: #bbdefb; }
+        .export-thumb-entry.selected { background: #FFE0B2; border-color: #FB8C00; box-shadow: 0 0 0 3px rgba(251,140,0,0.55), 0 4px 14px rgba(251,140,0,0.35); }
         .export-thumb-checkbox { position: absolute; top: 10px; left: 10px; z-index: 4; margin: 0; }
         .export-thumb-index { position: absolute; top: 8px; right: 8px; z-index: 4; padding: 3px 8px; border-radius: 999px; background: rgba(0,0,0,0.68); color: #fff; font-size: 12px; font-weight: bold; }
         .export-thumb-snapshot { width: 100%; aspect-ratio: 16 / 9; height: auto; border: 0; border-bottom: 1px solid #e3e7eb; border-radius: 0; background: #eef2f7; }
