@@ -1,9 +1,9 @@
 {
   "manifest_version": 3,
   "name": "右键链接收集器",
-  "version": "2026.10.04",
+  "version": "2026.10.15",
   "description": "在不打开网页的情况下右键保存链接和鼠标位置快照图片，可导出HTML和TXT",
-  "permissions": ["storage", "contextMenus", "downloads", "activeTab", "scripting", "unlimitedStorage"],
+  "permissions": ["storage", "contextMenus", "downloads", "activeTab", "scripting", "unlimitedStorage", "notifications"],
   "background": {
     "service_worker": "background.js"
   },

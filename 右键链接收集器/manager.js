@@ -16,19 +16,42 @@ let unvisitedMode = "aggregate"; // "aggregate" 聚合模式, "inGroup" 组内�
 let currentSearchKeywords = []; // 当前搜索的多关键字
 let selectedLinkIds = new Set();
 // Snapshot cache avoids repeated IndexedDB reads during preview and export.
+// 单张快照约 325KB，必须限制缓存条数，否则滚动浏览缩略图会把标签页撑到 GB 级内存。
 const snapshotDataCache = new Map();
+const SNAPSHOT_CACHE_LIMIT = 128;
+
+function cacheSnapshot(key, data) {
+  if (!data) return;
+  if (snapshotDataCache.has(key)) snapshotDataCache.delete(key);
+  snapshotDataCache.set(key, data);
+  while (snapshotDataCache.size > SNAPSHOT_CACHE_LIMIT) {
+    snapshotDataCache.delete(snapshotDataCache.keys().next().value);
+  }
+}
 
 async function getCachedSnapshot(id) {
   const key = String(id);
-  if (snapshotDataCache.has(key)) return snapshotDataCache.get(key);
+  if (snapshotDataCache.has(key)) {
+    const cached = snapshotDataCache.get(key);
+    snapshotDataCache.delete(key);
+    snapshotDataCache.set(key, cached);
+    return cached;
+  }
   const data = await DB.getSnapshot(id);
-  if (data) snapshotDataCache.set(key, data);
+  cacheSnapshot(key, data);
   return data;
 }
 
 async function getCachedSnapshots(ids, onProgress) {
   const normalizedIds = Array.from(new Set((ids || []).map(id => String(id))));
-  const missingIds = normalizedIds.filter(id => !snapshotDataCache.has(id));
+  const result = {};
+  const missingIds = [];
+
+  normalizedIds.forEach(id => {
+    if (snapshotDataCache.has(id)) result[id] = snapshotDataCache.get(id);
+    else missingIds.push(id);
+  });
+
   let completed = normalizedIds.length - missingIds.length;
 
   const report = () => {
@@ -46,14 +69,14 @@ async function getCachedSnapshots(ids, onProgress) {
         })
       : {};
     Object.entries(loaded || {}).forEach(([id, data]) => {
-      if (data) snapshotDataCache.set(String(id), data);
+      if (!data) return;
+      result[id] = data;
+      cacheSnapshot(String(id), data);
     });
   }
 
   report();
-  return Object.fromEntries(normalizedIds
-    .filter(id => snapshotDataCache.has(id))
-    .map(id => [id, snapshotDataCache.get(id)]));
+  return result;
 }
 let favoriteLinkIds = [];
 let favoriteSearchTags = [];
@@ -1196,9 +1219,10 @@ document.addEventListener("DOMContentLoaded", () => {
   }
   
   // 加载链接和分组
-  function loadLinks() {
-    chrome.storage.local.get({
-      links: [],
+  // v3 起链接本体存放在 IndexedDB（见 db.js），chrome.storage.local 只剩设置项；
+  // 读取前先确保旧版 storage.links 完成一次性迁移，再做全量读取。
+  async function loadLinks() {
+    const res = await chromeStorageGet({
       groups: DEFAULT_GROUPS,
       autoCloseTab: false,
       globalAutoCloseTab: false,
@@ -1208,8 +1232,8 @@ document.addEventListener("DOMContentLoaded", () => {
       [FAVORITE_LINK_IDS_STORAGE_KEY]: [],
       [FAVORITE_SEARCH_TAGS_STORAGE_KEY]: [],
       [UTAGS_BOOKMARKS_STORAGE_KEY]: {}
-    }, (res) => {
-      allLinks = Array.isArray(res.links) ? res.links : [];
+    });
+    allLinks = await DB.getAllLinksWithLegacyFallback();
       utagsBookmarks = res[UTAGS_BOOKMARKS_STORAGE_KEY] && typeof res[UTAGS_BOOKMARKS_STORAGE_KEY] === 'object'
         ? res[UTAGS_BOOKMARKS_STORAGE_KEY]
         : {};
@@ -1240,7 +1264,7 @@ document.addEventListener("DOMContentLoaded", () => {
         }
       });
       if (needsSave) {
-        chrome.storage.local.set({ links: allLinks });
+        DB.saveLinks(allLinks);
       }
       
       const rawGroups = Array.isArray(res.groups) ? res.groups : DEFAULT_GROUPS;
@@ -1277,9 +1301,12 @@ document.addEventListener("DOMContentLoaded", () => {
       applyCollapsedState();
       updateCount();
       updateGroupCount();
-      // 在数据加载完成后，检查是否有由背景脚本传递的分组操作请求
-      checkUrlParams();
-    });
+      // 数据加载完后按内存中的条数自愈式补设角标：
+      // 旧版靠 background 监听 storage.links 变化来设角标，v3 起 links 迁入
+      // IndexedDB 后该监听已移除；若升级瞬间角标被竞态清空，打开管理页即恢复。
+      updateBadge();
+    // 在数据加载完成后，检查是否有由背景脚本传递的分组操作请求
+    checkUrlParams();
   }
 
   // 检查URL参数，处理特定动作（如右键菜单“新建分组”）
@@ -1726,6 +1753,11 @@ document.addEventListener("DOMContentLoaded", () => {
     if (nextIndex < 0 || nextIndex >= items.length) return;
 
     const target = items[nextIndex];
+
+    // 先卸掉当前大图再加载下一张：全页快照解码后的位图可达数十 MB，不立即释放则
+    // 连续翻页时旧位图堆积，渲染进程被压到 OOM（表现为页面卡死随后崩溃）。
+    const currentPreviewImg = modal.querySelector('.preview-container img');
+    if (currentPreviewImg) currentPreviewImg.remove();
     const dataUrl = await loadPreviewSnapshotData(target.link.id);
     if (!dataUrl) return;
 
@@ -1865,8 +1897,8 @@ document.addEventListener("DOMContentLoaded", () => {
       }
     }
 
-    
     if (visible.length === 0) {
+      resetLazySnapshotObserver();
       linksList.innerHTML = "";
       emptyState.classList.remove("hidden");
       renderFavoriteSidebar();
@@ -1877,6 +1909,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
     if (isThumbnailMode() && getDisplayModeLinks(visible).length === 0) {
       emptyState.classList.add("hidden");
+      resetLazySnapshotObserver();
       linksList.innerHTML = '<div class="empty-state"><p>当前筛选结果里没有可用快照</p></div>';
       renderFavoriteSidebar();
       refreshGroupJumpOptions();
@@ -1885,6 +1918,7 @@ document.addEventListener("DOMContentLoaded", () => {
     }
     
     emptyState.classList.add("hidden");
+    resetLazySnapshotObserver();
     linksList.innerHTML = "";
     linksList.classList.remove("thumb-grid-host");
     
@@ -2127,6 +2161,7 @@ document.addEventListener("DOMContentLoaded", () => {
     });
 
     if (unvisitedLinks.length === 0 && visitedLinks.length === 0) {
+      resetLazySnapshotObserver();
       linksList.innerHTML = '<div class="empty-state"><p>没有链接</p></div>';
     }
   }
@@ -2137,6 +2172,7 @@ document.addEventListener("DOMContentLoaded", () => {
       const unvisited = links.filter(link => !visited[link.url]);
       
       if (unvisited.length === 0) {
+        resetLazySnapshotObserver();
         linksList.innerHTML = '<div class="empty-state"><p>所有链接都已访问过</p></div>';
         return;
       }
@@ -2153,6 +2189,7 @@ document.addEventListener("DOMContentLoaded", () => {
     const unvisitedLinks = links.filter(link => !visited[link.url]);
     
     if (unvisitedLinks.length === 0) {
+      resetLazySnapshotObserver();
       linksList.innerHTML = '<div class="empty-state"><p>所有链接都已访问过</p></div>';
       return;
     }
@@ -2326,10 +2363,171 @@ document.addEventListener("DOMContentLoaded", () => {
     }
     
     if (sortedTags.length === 0 && withoutTags.length === 0) {
+      resetLazySnapshotObserver();
       linksList.innerHTML = '<div class="empty-state">没有链接</div>';
     }
   }
   
+  // ===== 快照懒加载（内存关键路径）=====
+  // renderLinkCollection 对全部链接一次性建卡（无分页/虚拟化）。旧实现每张卡建卡即加载
+  // 全尺寸快照：325KB 级 dataUrl + 等量解码位图 × 数千张同时驻留 → 标签页 GB 级内存，
+  // 此时翻页再多加载一张全尺寸快照就会把渲染进程压垮（先卡死后崩溃）。
+  // 改为 IntersectionObserver 只保持「视口内 ±200px」的快照，滚出视口立即释放位图。
+  let lazySnapshotObserver = null;
+  function getLazySnapshotObserver() {
+    if (lazySnapshotObserver) return lazySnapshotObserver;
+    lazySnapshotObserver = new IntersectionObserver((entries) => {
+      entries.forEach((entry) => {
+        const el = entry.target;
+        if (entry.isIntersecting) {
+          if (el.dataset.lazyKind === 'card') {
+            loadCardSnapshot(el);
+          } else {
+            loadThumbSnapshot(el);
+          }
+        } else {
+          releaseLazySnapshot(el);
+        }
+      });
+    }, { rootMargin: '200px 0px', threshold: 0.01 });
+    return lazySnapshotObserver;
+  }
+
+  // 重新渲染列表前调用：断开旧观察目标，避免已被移除的卡片被观察器强引用而无法回收
+  function resetLazySnapshotObserver() {
+    if (lazySnapshotObserver) {
+      lazySnapshotObserver.disconnect();
+      lazySnapshotObserver = null;
+    }
+  }
+  function bindThumbnailOverlayInteractions(container) {
+    container.querySelectorAll('.thumb-tag, .utags-tag').forEach(tagEl => {
+      bindTagAction(tagEl);
+    });
+
+    container.querySelectorAll('.thumb-group-badge[data-group-name]').forEach(badgeEl => {
+      badgeEl.addEventListener('click', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        const groupName = e.currentTarget.dataset.groupName;
+        if (groupName) {
+          filterByKeyword(groupName);
+        }
+      });
+    });
+
+    container.querySelectorAll('.thumb-duplicate-badge[data-duplicate-url]').forEach(badgeEl => {
+      badgeEl.addEventListener('click', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        const dupUrl = e.currentTarget.dataset.duplicateUrl;
+        if (dupUrl) {
+          filterByKeyword(dupUrl);
+        }
+      });
+    });
+  }
+
+  // 滚出视口：移除 img 与标记，立即释放解码位图和对 dataUrl 字符串的引用（否则要等 GC）
+  function releaseLazySnapshot(el) {
+    if (!el || el.dataset.lazyLoaded !== '1') return;
+    const img = el.querySelector('img');
+    if (img) img.remove();
+    const marker = el.querySelector('.snapshot-marker');
+    if (marker) marker.remove();
+    el.dataset.lazyLoaded = '0';
+  }
+
+  function loadThumbSnapshot(media) {
+    if (!media || media.dataset.lazyLoaded === '1' || media.dataset.lazyLoaded === 'missing') return;
+    media.dataset.lazyLoaded = '1';
+    const overlayHtml = media.dataset.thumbOverlay || '';
+    getCachedSnapshot(media.dataset.linkId).then(dataUrl => {
+      if (!media.isConnected) return; // 加载期间卡片已被重渲染替换
+      if (!dataUrl || !dataUrl.startsWith('data:image')) {
+        media.dataset.lazyLoaded = 'missing';
+        media.innerHTML = `${overlayHtml}<div class="thumb-empty thumb-empty-missing">快照缺失</div>`;
+        bindThumbnailOverlayInteractions(media);
+        return;
+      }
+      media.innerHTML = `${overlayHtml}<img src="${dataUrl}" alt="快照缩略图" decoding="async">`;
+      bindThumbnailOverlayInteractions(media);
+      const clickPoint = media._thumbClickPoint || null;
+      const marker = createSnapshotMarker(clickPoint);
+      if (marker) {
+        media.appendChild(marker);
+        const imgEl = media.querySelector('img');
+        positionMarkerOnRenderedImage(marker, clickPoint, imgEl, media);
+      }
+    }).catch(err => {
+      media.dataset.lazyLoaded = '0';
+      console.error('加载缩略图快照失败:', err);
+    });
+  }
+
+  function loadCardSnapshot(el) {
+    if (!el || el.dataset.lazyLoaded === '1' || el.dataset.lazyLoaded === 'missing') return;
+    el.dataset.lazyLoaded = '1';
+    getCachedSnapshot(el.dataset.linkId).then(dataUrl => {
+      if (!el.isConnected) return;
+      if (!dataUrl || !dataUrl.startsWith('data:image')) {
+        el.dataset.lazyLoaded = 'missing';
+        return;
+      }
+      const link = el._lazyLink || null;
+      el.innerHTML = '';
+      const img = document.createElement('img');
+      img.src = dataUrl;
+      img.alt = '快照预览';
+      img.decoding = 'async';
+      img.onclick = (e) => {
+        e.stopPropagation();
+        if (link) {
+          showPreviewModalV2({
+            mode: 'detail',
+            dataUrl,
+            clickPoint: link.clickPoint || null,
+            link,
+            index: el._lazyIndex,
+            visited: el._lazyVisited
+          });
+        }
+      };
+      el.appendChild(img);
+      const clickPoint = link ? (link.clickPoint || null) : null;
+      const marker = createSnapshotMarker(clickPoint);
+      if (marker) {
+        el.appendChild(marker);
+        positionMarkerOnRenderedImage(marker, clickPoint, img, el);
+      }
+    }).catch(err => {
+      el.dataset.lazyLoaded = '0';
+      console.error('加载快照失败:', err);
+    });
+  }
+
+  // 点击缩略图打开大图：按需读取（懒加载后多数卡片未预载，LRU 缓存或 IDB 命中）
+  async function openThumbPreview(link, index, visited) {
+    let dataUrl = '';
+    try {
+      dataUrl = await getCachedSnapshot(link.id);
+    } catch (err) {
+      console.error('打开大图读取快照失败:', err);
+    }
+    if (!dataUrl || !dataUrl.startsWith('data:image')) {
+      console.warn('缩略图快照缺失或无效:', link.id, link.url);
+      return;
+    }
+    showPreviewModalV2({
+      mode: 'detail',
+      dataUrl,
+      clickPoint: link.clickPoint,
+      link,
+      index,
+      visited
+    });
+  }
+
   // 创建链接卡片
   function createThumbnailCard(link, index, visited) {
     const card = document.createElement("article");
@@ -2385,33 +2583,6 @@ document.addEventListener("DOMContentLoaded", () => {
 
     const media = card.querySelector(`#thumb-${link.id}`);
     const checkbox = card.querySelector('.thumb-select-checkbox');
-    const bindThumbnailOverlayInteractions = (container) => {
-      container.querySelectorAll('.thumb-tag, .utags-tag').forEach(tagEl => {
-        bindTagAction(tagEl);
-      });
-
-      container.querySelectorAll('.thumb-group-badge[data-group-name]').forEach(badgeEl => {
-        badgeEl.addEventListener('click', (e) => {
-          e.preventDefault();
-          e.stopPropagation();
-          const groupName = e.currentTarget.dataset.groupName;
-          if (groupName) {
-            filterByKeyword(groupName);
-          }
-        });
-      });
-
-      container.querySelectorAll('.thumb-duplicate-badge[data-duplicate-url]').forEach(badgeEl => {
-        badgeEl.addEventListener('click', (e) => {
-          e.preventDefault();
-          e.stopPropagation();
-          const dupUrl = e.currentTarget.dataset.duplicateUrl;
-          if (dupUrl) {
-            filterByKeyword(dupUrl);
-          }
-        });
-      });
-    };
 
     bindThumbnailOverlayInteractions(media);
 
@@ -2434,37 +2605,19 @@ document.addEventListener("DOMContentLoaded", () => {
       });
     }
 
-    getCachedSnapshot(link.id).then(dataUrl => {
-      if (!dataUrl || !dataUrl.startsWith('data:image')) {
-        console.warn('缩略图快照缺失或无效:', link.id, link.url);
-        media.innerHTML = `${overlayHtml}<div class="thumb-empty thumb-empty-missing">快照缺失</div>`;
-        bindThumbnailOverlayInteractions(media);
-        return;
-      }
-
-      media.innerHTML = `${overlayHtml}<img src="${dataUrl}" alt="快照缩略图">`;
-      bindThumbnailOverlayInteractions(media);
-      const marker = createSnapshotMarker(link.clickPoint);
-      if (marker) {
-        media.appendChild(marker);
-        const imgEl = media.querySelector('img');
-        positionMarkerOnRenderedImage(marker, link.clickPoint, imgEl, media);
-      }
-
-      media.addEventListener('click', (e) => {
-        e.stopPropagation();
-        showPreviewModalV2({
-          mode: 'detail',
-          dataUrl,
-          clickPoint: link.clickPoint,
-          link,
-          index,
-          visited
-        });
-      });
-    }).catch(err => {
-      console.error("加载缩略图快照失败:", err);
+    // 懒加载：进入视口再由观察器按需加载快照；点击大图时按需读取。
+    // 不把全尺寸 dataUrl 捕获进闭包——数千张卡同时驻留会把标签页撑到 GB 级内存。
+    media.dataset.lazySnapshot = '';
+    media.dataset.lazyKind = 'thumb';
+    media.dataset.lazyLoaded = '0';
+    media.dataset.linkId = link.id;
+    media.dataset.thumbOverlay = overlayHtml;
+    media._thumbClickPoint = link.clickPoint || null;
+    media.addEventListener('click', (e) => {
+      e.stopPropagation();
+      openThumbPreview(link, index, visited);
     });
+    getLazySnapshotObserver().observe(media);
 
     return card;
   }
@@ -2567,40 +2720,19 @@ document.addEventListener("DOMContentLoaded", () => {
       </div>
     `;
 
-    // 异步加载快照
+    // 懒加载快照：进入视口再加载、滚出即释放，防止数千张全尺寸快照同时驻留把标签页撑爆
     if (link.hasSnapshot) {
-      getCachedSnapshot(link.id).then(dataUrl => {
-        if (dataUrl && dataUrl.startsWith('data:image')) {
-          const snapshotEl = card.querySelector(`#snapshot-${link.id}`);
-          if (snapshotEl) {
-            snapshotEl.innerHTML = '';
-            const img = document.createElement('img');
-            img.src = dataUrl;
-            img.alt = '快照预览';
-            img.onclick = (e) => {
-              e.stopPropagation();
-              showPreviewModalV2({
-                mode: 'detail',
-                dataUrl,
-                clickPoint: link.clickPoint,
-                link,
-                index,
-                visited
-              });
-            };
-            snapshotEl.appendChild(img);
-
-            // 如果有点击位置信息，添加标记
-            const marker = createSnapshotMarker(link.clickPoint);
-            if (marker) {
-              snapshotEl.appendChild(marker);
-              positionMarkerOnRenderedImage(marker, link.clickPoint, img, snapshotEl);
-            }
-          }
-        }
-      }).catch(err => {
-        console.error("加载快照失败:", err);
-      });
+      const snapshotEl = card.querySelector(`#snapshot-${link.id}`);
+      if (snapshotEl) {
+        snapshotEl.dataset.lazySnapshot = '';
+        snapshotEl.dataset.lazyKind = 'card';
+        snapshotEl.dataset.lazyLoaded = '0';
+        snapshotEl.dataset.linkId = link.id;
+        snapshotEl._lazyLink = link;
+        snapshotEl._lazyIndex = index;
+        snapshotEl._lazyVisited = visited;
+        getLazySnapshotObserver().observe(snapshotEl);
+      }
     }
     
     // 复选框事件
@@ -3000,7 +3132,7 @@ document.addEventListener("DOMContentLoaded", () => {
     
     dialog.querySelector('#confirmTags').addEventListener('click', () => {
       link.tags = currentTags;
-      chrome.storage.local.set({ links: allLinks }, () => {
+      DB.saveLinks(allLinks).then(() => {
         renderLinks();
         dialog.remove();
         if (afterSave) afterSave(link);
@@ -3529,7 +3661,7 @@ document.addEventListener("DOMContentLoaded", () => {
         link.tags = existingTags;
       });
 
-      chrome.storage.local.set({ links: allLinks }, () => {
+      DB.saveLinks(allLinks).then(() => {
         renderLinks();
         dialog.remove();
       });
@@ -3612,7 +3744,7 @@ document.addEventListener("DOMContentLoaded", () => {
     const link = allLinks.find(l => l.id === linkId);
     if (link) {
       link.groupId = newGroupId;
-      chrome.storage.local.set({ links: allLinks }, () => {
+      DB.saveLinks(allLinks).then(() => {
         renderLinks();
       });
     }
@@ -3730,19 +3862,16 @@ document.addEventListener("DOMContentLoaded", () => {
   // 删除链接
   async function deleteLink(id) {
     if (!confirm("确定要删除这个链接吗？")) return;
-    
-    chrome.storage.local.get({ links: [] }, (res) => {
-      const links = (res.links || []).filter(l => l.id !== id);
-      chrome.storage.local.set({ links }, () => {
-        allLinks = links;
-        selectedLinkIds.delete(id);
-        renderLinks();
-        updateCount();
-        updateBadge();
-        DB.deleteSnapshot(id).then(() => {
-          if (isThumbnailMode()) renderLinks();
-        });
-      });
+
+    // 链接已迁至 IndexedDB（v3）：单条 delete，不再整份数组读-改-写
+    await DB.deleteLink(id);
+    allLinks = allLinks.filter(l => l.id !== id);
+    selectedLinkIds.delete(id);
+    renderLinks();
+    updateCount();
+    updateBadge();
+    DB.deleteSnapshot(id).then(() => {
+      if (isThumbnailMode()) renderLinks();
     });
   }
   
@@ -3754,14 +3883,14 @@ document.addEventListener("DOMContentLoaded", () => {
       : `${allLinks.length} 个链接`;
     if (!confirm(`确定要清空所有数据吗？\n\n将删除：\n${linksText}\n${favoriteLinkIds.length} 个收藏夹条目\n${favoriteSearchTags.length} 个快捷标签`)) return;
     
-    // 清空所有快照
+    // 清空所有快照与链接（均已存 IndexedDB）
     await DB.clearAllSnapshots();
-    
+    await DB.clearLinks();
+
     favoriteLinkIds = [];
     favoriteSearchTags = [];
 
     chrome.storage.local.set({
-      links: [],
       [FAVORITE_LINK_IDS_STORAGE_KEY]: favoriteLinkIds,
       [FAVORITE_SEARCH_TAGS_STORAGE_KEY]: favoriteSearchTags
     }, () => {
@@ -4027,6 +4156,20 @@ document.addEventListener("DOMContentLoaded", () => {
       let snapshots = {};
       if (options.snapshots) {
         const snapshotIds = linksToExport.filter(link => link.hasSnapshot).map(link => link.id);
+        // 单张快照约 325KB，全部内联进单个 HTML 会超出渲染进程内存上限。
+        const estimatedMb = Math.round(snapshotIds.length * 0.33);
+        if (estimatedMb > 300) {
+          const proceed = confirm(
+            `本次要内联 ${snapshotIds.length} 张截图，预计生成约 ${estimatedMb} MB 的单个 HTML 文件，` +
+            `浏览器很可能因内存不足崩溃。\n\n` +
+            `建议改用「导出数据 → 全部数据 JSON」，它采用流式写入，可安全备份全部数据（含截图）。\n\n` +
+            `仍要继续生成 HTML 吗？`
+          );
+          if (!proceed) {
+            closeImportProgress();
+            return;
+          }
+        }
         updateImportProgress('读取快照 0/' + snapshotIds.length + '...', 10, '');
         snapshots = await getCachedSnapshots(snapshotIds, (completed, total) => {
           const safeCompleted = Math.min(completed, total);
@@ -4078,97 +4221,245 @@ document.addEventListener("DOMContentLoaded", () => {
     a.href = url;
     a.download = filename;
     a.click();
-    setTimeout(() => URL.revokeObjectURL(url), 60000);
+    // 大数据量导出的下载读盘可能持续较久，延迟释放以免中断下载
+    setTimeout(() => URL.revokeObjectURL(url), 10 * 60 * 1000);
   }
   
-  // 导出数据为JSON（用于扩展间同步）
-  async function exportData(options = { selected: false }) {
+  // 生成导出文件名（含用户设置的前缀）
+  function buildExportFilename(total, selected, ext = 'json') {
+    const now = new Date();
+    const pad = (value) => String(value).padStart(2, '0');
+    const stamp = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}_${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`;
+    const scopeText = selected ? '选中条目' : '全部数据';
+    let name = `链接收集器数据(${scopeText}-${total}个链接)_${stamp}.${ext}`;
+    const prefix = getExportFilenamePrefix();
+    if (prefix && !name.startsWith(prefix)) name = prefix + name;
+    return name;
+  }
+
+  // 临时导出文件的保留时长：下载读盘是异步的，删太早会截断正在进行的下载。
+  const EXPORT_TEMP_KEEP_MS = 30 * 60 * 1000;
+  // 超过这个年龄的临时文件视为上次失败的残留，可以安全清理。
+  const EXPORT_TEMP_STALE_MS = 30 * 60 * 1000;
+
+  // 清理 OPFS 里过期的临时导出文件。
+  // 只清理「本次导出不使用的」且「已存在超过 30 分钟」的文件，
+  // 绝不触碰可能正在被下载读取的文件。
+  async function sweepStaleExportFiles(dir, keepName) {
     try {
-    const linksToExport = options.selected ? getSelectedLinks() : allLinks;
-    if (options.selected && linksToExport.length === 0) {
-      alert("请先选择要导出的链接");
-      return;
+      if (typeof dir.entries !== 'function') return;
+      const now = Date.now();
+      for await (const [name, handle] of dir.entries()) {
+        if (name === keepName || !handle || handle.kind !== 'file') continue;
+        let age = Infinity;
+        try {
+          const file = await handle.getFile();
+          age = now - file.lastModified;
+        } catch (err) {
+          age = Infinity;
+        }
+        if (age < EXPORT_TEMP_STALE_MS) continue;
+        try {
+          await dir.removeEntry(name);
+        } catch (err) {
+          console.warn('清理临时导出文件失败:', name, err);
+        }
+      }
+    } catch (err) {
+      console.warn('扫描临时导出目录失败:', err);
+    }
+  }
+
+  // 创建导出写入目标（导出全程只有一个写入目标，最终只产生一个文件）。
+  // 1) 有文件句柄：直接流式写入用户选定的位置，不产生任何临时副本。
+  // 2) 无文件句柄：写入 OPFS 私有文件系统暂存，完成后作为「单个文件」交给下载。
+  //    这样数据始终以流的方式落盘，既不会撑爆内存，也不会产生一堆分片文件。
+  async function createExportSink(fileHandle, filename, tempDirName, tempFilePrefix) {
+    if (fileHandle) {
+      const stream = await fileHandle.createWritable();
+      return {
+        async write(chunk) { await stream.write(chunk); },
+        async finish() { await stream.close(); },
+        async abort() { try { await stream.abort(); } catch (err) { console.warn(err); } }
+      };
     }
 
-    showImportProgress('正在导出 JSON...');
-    const total = linksToExport.length;
-    updateImportProgress('准备导出 ' + total + ' 条链接...', 5, '');
-    // Paint the initial state before starting storage work.
-    await new Promise(resolve => requestAnimationFrame(resolve));
+    if (!navigator.storage || typeof navigator.storage.getDirectory !== 'function') return null;
 
-    const exportLinkIds = new Set(linksToExport.map(link => String(link.id)));
-    const snapshots = {};
-    
-    // Read all required snapshots in one IndexedDB transaction.
-    const snapshotIds = linksToExport.filter(link => link.hasSnapshot).map(link => link.id);
-    // Reading and serializing are two real work units per snapshot. Keeping one
-    // shared denominator prevents the bar from jumping when phases switch.
-    const totalSnapshotWork = Math.max(snapshotIds.length, 1);
-    updateImportProgress('读取快照 0/' + snapshotIds.length + '...', 0, '');
-    Object.assign(snapshots, await getCachedSnapshots(snapshotIds, (completed, total) => {
-      const safeCompleted = Math.min(Math.max(completed, 0), total);
-      const percent = Math.round((safeCompleted / Math.max(totalSnapshotWork, 1)) * 50);
-      updateImportProgress('读取快照 ' + safeCompleted + '/' + total + '...', percent, '');
-    }));
-    updateImportProgress('读取快照 ' + snapshotIds.length + '/' + snapshotIds.length + '...', 50, '');
+    const root = await navigator.storage.getDirectory();
+    const dir = await root.getDirectoryHandle(tempDirName, { create: true });
 
-    updateImportProgress('正在构建 JSON 数据...', 50, '');
-    const exportDataMeta = {
-      version: '1.1',
-      timestamp: new Date().toISOString(),
-      exportScope: options.selected ? 'selected' : 'all',
-      links: linksToExport,
-      groups: allGroups,
-      favoriteLinkIds: favoriteLinkIds.filter(id => exportLinkIds.has(String(id))),
-      favoriteSearchTags
+    // 关键：每次导出用「唯一文件名」。
+    // 若沿用固定文件名，连续导出时后一次会把前一次正在下载的源文件删掉/覆盖，
+    // 结果是下载中断或得到截断的 JSON——备份文件直接被写坏。
+    const tempFileName = `${tempFilePrefix}-${Date.now()}.json`;
+    await sweepStaleExportFiles(dir, tempFileName);
+
+    const handle = await dir.getFileHandle(tempFileName, { create: true });
+    const stream = await handle.createWritable();
+    const cleanup = () => {
+      try { dir.removeEntry(tempFileName).catch(() => {}); } catch (err) { /* 忽略 */ }
     };
 
-    // Build a valid JSON stream: serialize metadata once, then append snapshot entries.
-    const metadataJson = JSON.stringify({
-      version: exportDataMeta.version,
-      timestamp: exportDataMeta.timestamp,
-      exportScope: exportDataMeta.exportScope,
-      links: exportDataMeta.links,
-      groups: exportDataMeta.groups,
-      favoriteLinkIds: exportDataMeta.favoriteLinkIds,
-      favoriteSearchTags: exportDataMeta.favoriteSearchTags
-    });
-    const jsonParts = [
-      metadataJson.slice(0, -1),
-      ',"snapshots":{'
-    ];
-    const snapshotEntries = Object.entries(snapshots);
-    const serializationTotal = snapshotEntries.length;
-    updateImportProgress('序列化快照 0/' + serializationTotal + '...', 50, '');
-    for (let index = 0; index < serializationTotal; index++) {
-      const [id, data] = snapshotEntries[index];
-      if (index > 0) jsonParts.push(',');
-      jsonParts.push(JSON.stringify(String(id)), ':', JSON.stringify(data));
-
-      if (index % 32 === 0 || index === serializationTotal - 1) {
-        const percent = 50 + Math.round(((index + 1) / Math.max(serializationTotal, 1)) * 50);
-        updateImportProgress('序列化快照 ' + (index + 1) + '/' + serializationTotal + '...', percent, '');
-        await new Promise(resolve => requestAnimationFrame(resolve));
+    return {
+      async write(chunk) { await stream.write(chunk); },
+      async finish() {
+        await stream.close();
+        const file = await handle.getFile();
+        downloadBlob(file, filename, 'application/json');
+        // 下载完成后才允许删除，且只删本次这个文件
+        setTimeout(cleanup, EXPORT_TEMP_KEEP_MS);
+      },
+      async abort() {
+        try { await stream.abort(); } catch (err) { console.warn(err); }
+        cleanup();
       }
-    }
-    jsonParts.push('}}');
-    const jsonBlob = new Blob(jsonParts, { type: 'application/json;charset=utf-8' });
-    const jsonSizeMB = (jsonBlob.size / 1024 / 1024).toFixed(1);
-    updateImportProgress('准备下载 (' + jsonSizeMB + ' MB)...', 100, '');
+    };
+  }
 
-    const now = new Date();
-    const year = now.getFullYear();
-    const month = String(now.getMonth() + 1).padStart(2, '0');
-    const day = String(now.getDate()).padStart(2, '0');
-    const hours = String(now.getHours()).padStart(2, '0');
-    const minutes = String(now.getMinutes()).padStart(2, '0');
-    const seconds = String(now.getSeconds()).padStart(2, '0');
-    
-    const scopeText = options.selected ? "选中条目" : "全部数据";
-    const filename = `链接收集器数据(${scopeText}-${linksToExport.length}个链接)_${year}-${month}-${day}_${hours}${minutes}${seconds}.json`;
-    downloadBlob(jsonBlob, filename, 'application/json');
-    setTimeout(closeImportProgress, 500);
-    } catch(e) { closeImportProgress(); alert("导出失败: " + e.message); }
+  // 导出数据为JSON（用于扩展间同步）
+  // 全程流式写入：逐条读取快照并立即落盘，内存占用恒定在个位数 MB，
+  // 既避免一次性把全部快照读进内存导致标签页 Out of Memory 崩溃，也保证只产生一个文件。
+  async function exportData(options = { selected: false }) {
+    const EXPORT_FLUSH_BYTES = 4 * 1024 * 1024;
+    const OPFS_TEMP_DIR = 'export-temp';
+    const OPFS_TEMP_PREFIX = 'export';
+    let sink = null;
+    try {
+      const linksToExport = options.selected ? getSelectedLinks() : allLinks;
+      if (options.selected && linksToExport.length === 0) {
+        alert("请先选择要导出的链接");
+        return;
+      }
+
+      const total = linksToExport.length;
+      const exportLinkIds = new Set(linksToExport.map(link => String(link.id)));
+      const snapshotIds = linksToExport.filter(link => link.hasSnapshot).map(link => link.id);
+      const filename = buildExportFilename(total, !!options.selected);
+
+      // 文件选择器依赖用户手势，必须放在任何 await 之前调用。
+      // 该 API 在部分浏览器/扩展页不可用，失败时改走 OPFS 暂存，不再降级成分片文件。
+      let fileHandle = null;
+      if (typeof window.showSaveFilePicker === 'function') {
+        try {
+          fileHandle = await window.showSaveFilePicker({
+            suggestedName: filename,
+            types: [{ description: 'JSON 数据', accept: { 'application/json': ['.json'] } }]
+          });
+        } catch (pickerError) {
+          if (pickerError && pickerError.name === 'AbortError') return;
+          console.warn('showSaveFilePicker 不可用，改用 OPFS 暂存后单文件下载:', pickerError);
+          fileHandle = null;
+        }
+      } else {
+        console.warn('当前环境未提供 showSaveFilePicker，改用 OPFS 暂存后单文件下载。');
+      }
+
+      showImportProgress('正在导出 JSON...');
+      updateImportProgress('准备导出 ' + total + ' 条链接...', 3, '');
+      await new Promise(resolve => requestAnimationFrame(resolve));
+
+      const metadataJson = JSON.stringify({
+        version: '1.1',
+        timestamp: new Date().toISOString(),
+        exportScope: options.selected ? 'selected' : 'all',
+        links: linksToExport,
+        groups: allGroups,
+        favoriteLinkIds: favoriteLinkIds.filter(id => exportLinkIds.has(String(id))),
+        favoriteSearchTags
+      });
+
+      sink = await createExportSink(fileHandle, filename, OPFS_TEMP_DIR, OPFS_TEMP_PREFIX);
+
+      if (!sink) {
+        // 极端兜底：既无文件流 API 也无 OPFS 时才分片导出
+        console.warn('文件流与 OPFS 均不可用，回退到分片导出。');
+        await exportDataChunked(metadataJson, snapshotIds, total, !!options.selected);
+        setTimeout(closeImportProgress, 800);
+        return;
+      }
+
+      await sink.write(metadataJson.slice(0, -1));
+      await sink.write(',"snapshots":{');
+
+      let pending = [];
+      let pendingBytes = 0;
+      let written = 0;
+      // 用 UTF-8 真实字节数统计体积，避免非 ASCII 内容导致显示偏小
+      let writtenBytes = new Blob([metadataJson]).size;
+
+      for (let index = 0; index < snapshotIds.length; index++) {
+        // 逐条读取，用完即释放，不再经过 snapshotDataCache 常驻内存。
+        const data = await DB.getSnapshot(snapshotIds[index]);
+        if (!data) continue;
+        const piece = (written > 0 ? ',' : '') + JSON.stringify(String(snapshotIds[index])) + ':' + JSON.stringify(data);
+        pending.push(piece);
+        pendingBytes += piece.length;
+        written += 1;
+
+        if (pendingBytes >= EXPORT_FLUSH_BYTES) {
+          const chunk = pending.join('');
+          await sink.write(chunk);
+          writtenBytes += new Blob([chunk]).size;
+          pending = [];
+          pendingBytes = 0;
+          const percent = 3 + Math.round((written / Math.max(snapshotIds.length, 1)) * 96);
+          updateImportProgress(
+            '写入快照 ' + written + '/' + snapshotIds.length + '（' + (writtenBytes / 1048576).toFixed(1) + ' MB）...',
+            Math.min(percent, 99),
+            ''
+          );
+          await new Promise(resolve => requestAnimationFrame(resolve));
+        }
+      }
+
+      if (pending.length > 0) {
+        const chunk = pending.join('');
+        await sink.write(chunk);
+        writtenBytes += new Blob([chunk]).size;
+      }
+      await sink.write('}}');
+      writtenBytes += 2;
+      await sink.finish();
+      sink = null;
+      updateImportProgress('导出完成，共 ' + (writtenBytes / 1048576).toFixed(1) + ' MB，正在保存文件...', 100, '');
+      setTimeout(closeImportProgress, 1500);
+    } catch (e) {
+      try { if (sink) await sink.abort(); } catch (abortError) { console.warn(abortError); }
+      closeImportProgress();
+      alert("导出失败: " + (e && e.message ? e.message : e));
+    }
+  }
+
+  // 极端兜底导出：仅在文件流与 OPFS 都不可用时使用。
+  // 把快照按分片拆成多个 JSON 文件逐个下载，控制单次内存峰值。
+  async function exportDataChunked(metadataJson, snapshotIds, total, selected) {
+    const CHUNK_SIZE = 200;
+    const chunkCount = Math.max(1, Math.ceil(snapshotIds.length / CHUNK_SIZE));
+    const baseName = buildExportFilename(total, selected).replace(/\.json$/i, '');
+
+    for (let chunkIndex = 0; chunkIndex < chunkCount; chunkIndex++) {
+      const slice = snapshotIds.slice(chunkIndex * CHUNK_SIZE, (chunkIndex + 1) * CHUNK_SIZE);
+      const parts = [metadataJson.slice(0, -1), ',"snapshots":{'];
+      let first = true;
+
+      for (const id of slice) {
+        const data = await DB.getSnapshot(id);
+        if (!data) continue;
+        if (!first) parts.push(',');
+        parts.push(JSON.stringify(String(id)), ':', JSON.stringify(data));
+        first = false;
+      }
+
+      parts.push('}}');
+      const blob = new Blob(parts, { type: 'application/json;charset=utf-8' });
+      downloadBlob(blob, `${baseName}(part${chunkIndex + 1}of${chunkCount}).json`, 'application/json');
+
+      const percent = Math.round(((chunkIndex + 1) / chunkCount) * 100);
+      updateImportProgress(`分片导出 ${chunkIndex + 1}/${chunkCount}...`, percent, '浏览器可能提示“允许多个文件下载”，请选择允许');
+      // 多文件下载需要间隔，否则会被浏览器拦截。
+      await new Promise(resolve => setTimeout(resolve, 500));
+    }
   }
   
   function getUrlKey(url) {
@@ -4376,12 +4667,13 @@ document.addEventListener("DOMContentLoaded", () => {
       const importOptions=await requestImportOptions(data,{links:importLinksCount,linksText:`${importLinksCount} 个链接（可包含快照）`,groups:importGroupsCount,favorites:importFavoriteLinksCount,tags:importFavoriteTagsCount});
       if(!importOptions){closeImportProgress();return;} const overwrite=importOptions.mode==='overwrite'; const oldToFinal={}; const snapMap={}; const oldGroups={}; let added=0;
       if(importOptions.groups){const groups=Array.isArray(data.groups)?data.groups:[]; if(overwrite){allGroups=ensureValidGroups(groups,importOptions.links?sourceLinks:allLinks);} else {const byName=new Map(allGroups.map(g=>[String(g.name||'').trim().toLowerCase(),g]));let id=Math.max(0,...allGroups.map(g=>Number(g.id)||0))+1;groups.forEach(g=>{const k=String(g.name||'').trim().toLowerCase(),e=byName.get(k);if(e){oldGroups[g.id]=e.id;return;}const n={...g,id:String(id++),name:String(g.name||'未命名分组').trim()||'未命名分组'};allGroups.push(n);byName.set(k,n);oldGroups[g.id]=n.id;});}}
-      if(importOptions.links){if(overwrite){allLinks=sourceLinks.map(l=>{const n={...l};if(n.groupId)n.groupId=oldGroups[n.groupId]??n.groupId;oldToFinal[l.id]=n.id;snapMap[l.id]=n.id;return n;});await DB.clearAllSnapshots();added=allLinks.length;}else{let id=Math.max(0,...allLinks.map(l=>Number(l.id)||0))+1;const byUrl=getLinkByUrlMap(allLinks);sourceLinks.forEach(l=>{const k=getUrlKey(l.url),e=k?byUrl.get(k):null;if(e){oldToFinal[l.id]=e.id;}else{const n={...l,id:id++};if(n.groupId)n.groupId=oldGroups[n.groupId]??n.groupId;allLinks.push(n);if(k)byUrl.set(k,n);oldToFinal[l.id]=n.id;snapMap[l.id]=n.id;added++;}});}} else {const byUrl=getLinkByUrlMap(allLinks);sourceLinks.forEach(l=>{const e=byUrl.get(getUrlKey(l.url));if(e)oldToFinal[l.id]=e.id;});}
+      if(importOptions.links){if(overwrite){allLinks=sourceLinks.map(l=>{const n={...l};if(n.groupId)n.groupId=oldGroups[n.groupId]??n.groupId;oldToFinal[l.id]=n.id;snapMap[l.id]=n.id;return n;});await DB.clearAllSnapshots();await DB.clearLinks();added=allLinks.length;}else{let id=Math.max(0,...allLinks.map(l=>Number(l.id)||0))+1;const byUrl=getLinkByUrlMap(allLinks);sourceLinks.forEach(l=>{const k=getUrlKey(l.url),e=k?byUrl.get(k):null;if(e){oldToFinal[l.id]=e.id;}else{const n={...l,id:id++};if(n.groupId)n.groupId=oldGroups[n.groupId]??n.groupId;allLinks.push(n);if(k)byUrl.set(k,n);oldToFinal[l.id]=n.id;snapMap[l.id]=n.id;added++;}});}} else {const byUrl=getLinkByUrlMap(allLinks);sourceLinks.forEach(l=>{const e=byUrl.get(getUrlKey(l.url));if(e)oldToFinal[l.id]=e.id;});}
       if(importOptions.favorites){const ids=(data.favoriteLinkIds||[]).map(id=>oldToFinal[id]??oldToFinal[String(id)]).filter(id=>id!=null);favoriteLinkIds=overwrite?ids.map(normalizeFavoriteId):Array.from(new Set([...favoriteLinkIds,...ids].map(String))).map(normalizeFavoriteId);}
       if(importOptions.tags){const tags=normalizeFavoriteSearchTagList(data.favoriteSearchTags);favoriteSearchTags=overwrite?tags:normalizeFavoriteSearchTagList([...favoriteSearchTags,...tags]);}
       allGroups=ensureValidGroups(allGroups,allLinks); updateImportProgress('正在逐条保存快照...',68,''); let snapshots=0;
       await streamImportJson(file,async(id,val)=>{const target=snapMap[id]??snapMap[String(id)];if(target){await DB.saveSnapshot(target,val);snapshots++;}},loaded=>{const percent=68+Math.min(26,Math.floor((loaded/Math.max(file.size,1))*26));updateImportProgress(`正在保存快照 ${snapshots}...`,percent,`${Math.round((loaded/Math.max(file.size,1))*100)}%`);});
-      chrome.storage.local.set({links:allLinks,groups:allGroups,[FAVORITE_LINK_IDS_STORAGE_KEY]:favoriteLinkIds,[FAVORITE_SEARCH_TAGS_STORAGE_KEY]:favoriteSearchTags},()=>{
+      await DB.saveLinks(allLinks);
+      chrome.storage.local.set({groups:allGroups,[FAVORITE_LINK_IDS_STORAGE_KEY]:favoriteLinkIds,[FAVORITE_SEARCH_TAGS_STORAGE_KEY]:favoriteSearchTags},()=>{
         closeImportProgress(); renderLinks(); renderFavoriteSidebar(); updateCount(); updateGroupCount(); updateBadge(); updateContextMenus();
         const formatLinksWithSnapshots = (prefix, count) => `${prefix} ${count} 个链接（含快照）`;
         const modeText = overwrite ? '覆盖结果' : '合并结果';
@@ -6556,7 +6848,6 @@ document.addEventListener("DOMContentLoaded", () => {
     return htmlParts;
   }
 
-  
   // 更新角标
   function updateBadge() {
     const count = allLinks.length;
@@ -6890,11 +7181,11 @@ document.addEventListener("DOMContentLoaded", () => {
       
       const linksToDelete = allLinks.filter(link => link.groupId === groupId);
       const snapshotIdsToDelete = linksToDelete.map(link => link.id);
-      
-      // 直接从 allLinks 中删除该分组的所有链接
+
+      // 直接从 allLinks 中删除该分组的所有链接，并同步删除 IndexedDB 记录
       allLinks = allLinks.filter(link => link.groupId !== groupId);
-      
-      chrome.storage.local.set({ links: allLinks }, () => {
+
+      DB.deleteLinks(snapshotIdsToDelete).then(() => {
         // 删除分组
         allGroups = allGroups.filter(g => g.id !== groupId);
         chrome.storage.local.set({ groups: allGroups }, () => {
@@ -6928,8 +7219,6 @@ document.addEventListener("DOMContentLoaded", () => {
   function updateContextMenus() {
     chrome.runtime.sendMessage({ action: 'updateContextMenus' });
   }
-  
-
   
   // ========== 分组管理功能结束 ==========
   
@@ -7055,8 +7344,8 @@ document.addEventListener("DOMContentLoaded", () => {
           }
         });
         
-        // 保存到存储
-        chrome.storage.local.set({ links: allLinks }, () => {
+        // 保存到存储（IndexedDB）
+        DB.saveLinks(allLinks).then(() => {
           selectedLinkIds.clear();
           renderLinks();
           dialog.remove();
@@ -7082,7 +7371,7 @@ document.addEventListener("DOMContentLoaded", () => {
       // 直接删除，不调用deleteLink避免重复确认
       allLinks = allLinks.filter(l => !selectedIds.includes(l.id));
       selectedIds.forEach(id => selectedLinkIds.delete(id));
-      chrome.storage.local.set({ links: allLinks }, () => {
+      DB.deleteLinks(selectedIds).then(() => {
         renderLinks();
         updateCount();
         updateBadge();
@@ -7276,8 +7565,26 @@ document.addEventListener("DOMContentLoaded", () => {
       rightOverlay?.classList.toggle('is-active', !isAtEnd && clientX >= rightBoundary);
     };
 
-    overlayHost.addEventListener('mousemove', (e) => updateState(e.clientX));
-    overlayHost.addEventListener('mouseleave', clearState);
+    // mousemove 频率极高，而 updateState 会读 getBoundingClientRect（强制布局）。
+    // 列表有数千张卡时一次完整布局可达数百毫秒，不节流会把主线程占满导致页面假死。
+    let navRafId = 0;
+    let navLastClientX = -1;
+    const scheduleNavUpdate = (clientX) => {
+      navLastClientX = clientX;
+      if (navRafId) return;
+      navRafId = requestAnimationFrame(() => {
+        navRafId = 0;
+        updateState(navLastClientX);
+      });
+    };
+    overlayHost.addEventListener('mousemove', (e) => scheduleNavUpdate(e.clientX));
+    overlayHost.addEventListener('mouseleave', () => {
+      if (navRafId) {
+        cancelAnimationFrame(navRafId);
+        navRafId = 0;
+      }
+      clearState();
+    });
     if (boundsSource && !boundsSource.complete) {
       boundsSource.addEventListener('load', () => {
         updateState(-1);
@@ -7328,7 +7635,6 @@ document.addEventListener("DOMContentLoaded", () => {
     const isAtStart = !canNavigate || previewGalleryState.currentIndex <= 0;
     const isAtEnd = !canNavigate || previewGalleryState.currentIndex >= previewGalleryState.items.length - 1;
 
-
     modal.innerHTML = `
       <div class="preview-scroll-layer">
         <div class="preview-shell ${mode === 'detail' ? 'detail' : 'simple'}">
@@ -7336,7 +7642,7 @@ document.addEventListener("DOMContentLoaded", () => {
             <div class="preview-nav-overlay preview-nav-overlay-left${isAtStart ? ' is-disabled' : ''}" aria-hidden="true"></div>
             <div class="preview-nav-overlay preview-nav-overlay-right${isAtEnd ? ' is-disabled' : ''}" aria-hidden="true"></div>
             <div class="preview-container preview-image-frame">
-              <img src="${dataUrl}" alt="快照预览">
+              <img src="${dataUrl}" alt="快照预览" decoding="async">
             </div>
           </div>
           ${detailHtml ? `<div class="preview-detail-section">${detailHtml}</div>` : ''}
@@ -7527,7 +7833,7 @@ document.addEventListener("DOMContentLoaded", () => {
     // 每次显示都重新构建内部结构，确保容器和点击监听器是最新的
     modal.innerHTML = `
       <div class="preview-container" style="position: relative; display: inline-block; line-height: 0; max-width: 95vw; max-height: 95vh;">
-        <img id="previewImage" src="${dataUrl}" alt="预览大图" style="max-width: 100%; max-height: 100%; display: block; border-radius: 8px; box-shadow: 0 0 30px rgba(0,0,0,0.5); background: white;">
+        <img id="previewImage" src="${dataUrl}" alt="预览大图" decoding="async" style="max-width: 100%; max-height: 100%; display: block; border-radius: 8px; box-shadow: 0 0 30px rgba(0,0,0,0.5); background: white;">
       </div>
     `;
     

@@ -65,12 +65,11 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   }
 
-  function loadLinksFromStorage() {
-    chrome.storage.local.get({ links: [] }, (res) => {
-      allLinks = Array.isArray(res.links) ? res.links : [];
-      setCount();
-      render();
-    });
+  async function loadLinksFromStorage() {
+    // v3 起链接存放在 IndexedDB（db.js），读取前确保旧版 storage.links 迁移完成
+    allLinks = await DB.getAllLinksWithLegacyFallback();
+    setCount();
+    render();
   }
 
   function render() {
@@ -487,20 +486,17 @@ ${allLinks.map((link, index) => {
 
   function deleteById(id) {
     if (!confirm("确定要删除这个链接吗？")) return;
-    chrome.storage.local.get({ links: [] }, (res) => {
-      const links = (res.links || []).filter((l) => l.id !== id);
-      chrome.storage.local.set({ links }, () => {
-        allLinks = links;
-        render();
-        setCount();
-        updateBadge();
-      });
+    DB.deleteLink(id).then(() => {
+      allLinks = allLinks.filter((l) => l.id !== id);
+      render();
+      setCount();
+      updateBadge();
     });
   }
 
   clearAllBtn.addEventListener("click", () => {
     if (!confirm("确定要删除所有保存的链接吗？")) return;
-    chrome.storage.local.set({ links: [] }, () => {
+    DB.clearLinks().then(() => {
       allLinks = [];
       render();
       setCount();
@@ -525,13 +521,11 @@ ${allLinks.map((link, index) => {
     chrome.tabs.create({ url: chrome.runtime.getURL("manager.html") });
   });
 
-  function initialLoad() {
-    chrome.storage.local.get({ links: [] }, (res) => {
-      allLinks = Array.isArray(res.links) ? res.links : [];
-      setCount();
-      render();
-      updateBadge();
-    });
+  async function initialLoad() {
+    allLinks = await DB.getAllLinksWithLegacyFallback();
+    setCount();
+    render();
+    updateBadge();
   }
 
   initialLoad();
