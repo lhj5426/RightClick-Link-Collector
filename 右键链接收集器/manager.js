@@ -4981,7 +4981,7 @@ document.addEventListener("DOMContentLoaded", () => {
       return `
         <div class="tab-entry" data-id="${link.id}" data-url="${escapeHtml(link.url)}" data-title="${escapeHtml(link.title || link.page || '')}" data-group-id="${link.groupId || ''}" data-page-count="${getPageCountValue(link)}" data-tags="${escapeHtml(link.tags ? link.tags.map(t=>t.text).join(' ') : '')}">
           <span class="tab-index">${index}</span>
-          <input type="checkbox" class="tab-checkbox" onclick="window.toggleTabSelection(this)">
+          <input type="checkbox" class="tab-checkbox" onclick="window.toggleTabSelection(this, event)">
           <div class="tab-content">
             <a href="${escapeHtml(link.url)}" class="tab-title" target="_blank" onmousedown="window.handleLinkClick(event)">${escapeHtml(link.url)}</a>
             <div class="tab-url-container">
@@ -5037,7 +5037,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
       return `
         <div class="tab-entry export-thumb-entry" data-id="${link.id}" data-url="${escapeHtml(link.url)}" data-title="${escapeHtml(link.title || link.page || '')}" data-group-id="${link.groupId || ''}" data-page-count="${getPageCountValue(link)}" data-tags="${escapeHtml(link.tags ? link.tags.map(t=>t.text).join(' ') : '')}">
-          <input type="checkbox" class="tab-checkbox export-thumb-checkbox" onclick="window.toggleTabSelection(this)">
+          <input type="checkbox" class="tab-checkbox export-thumb-checkbox" onclick="window.toggleTabSelection(this, event)">
           <span class="export-thumb-index">#${index}</span>
           ${snapshotHTML}
           <div class="export-thumb-detail">
@@ -5175,11 +5175,14 @@ document.addEventListener("DOMContentLoaded", () => {
         body { font-family: Arial, sans-serif; margin: 0; padding: 20px 20px 20px 210px; background: #f5f5f5; }
         .static-header { background: #fff; padding: 20px; border-radius: 8px; margin-bottom: 20px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
         .sticky-controls { position: sticky; top: 15px; z-index: 1000; background: rgba(255,255,255,0.95); backdrop-filter: blur(8px); padding: 15px; border-radius: 8px; margin-bottom: 20px; box-shadow: 0 2px 8px rgba(0,0,0,0.15); display: flex; align-items: center; flex-wrap: wrap; gap: 15px; }
-        .button-group { display: flex; flex-wrap: wrap; gap: 10px; }
-        .button { padding: 8px 16px; background: #2196F3; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 14px; }
+        .button-group { display: flex; flex-wrap: wrap; gap: 8px; }
+        .button { padding: 8px 13px; background: #2196F3; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 14px; }
         .button:hover { background: #1976D2; }
         .search-container { flex-grow: 1; min-width: 200px; }
         .search-input { width: 100%; padding: 8px 12px; border: 1px solid #ddd; border-radius: 4px; font-size: 14px; }
+        .search-panel { display: none; position: absolute; top: 100%; left: 12px; right: 12px; margin-top: 8px; padding: 10px; background: #fff; border: 1px solid #cfd8e3; border-radius: 8px; box-shadow: 0 10px 26px rgba(0,0,0,0.18); z-index: 1200; }
+        .search-panel.open { display: block; }
+        .side-stats { background: #f1f5f9; border: 1px solid #e3e7eb; border-radius: 6px; padding: 8px 10px; font-size: 12px; color: #444; line-height: 1.5; word-break: break-all; }
         .view-controls { position: fixed; left: 20px; top: 20px; width: 150px; z-index: 999; background: #fff; padding: 15px; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.15); display: flex; flex-direction: column; gap: 10px; }
         .view-button { padding: 10px 12px; border: 1px solid #ddd; border-radius: 4px; background: white; cursor: pointer; font-size: 13px; text-align: left; }
         .view-button:hover { background: #f5f5f5; }
@@ -5335,18 +5338,15 @@ document.addEventListener("DOMContentLoaded", () => {
         .exp-preview-nav-overlay.is-disabled { display: none; }
         .exp-preview-detail-section { margin-top: 28px; padding-top: 4px; background: #f5f7fa; border-radius: 12px; padding: 16px; }
       </style></head><body>
-      <div class="static-header">
-        <div class="stats"><strong>总链接数:</strong> ${tabCount} | <strong>保存时间:</strong> ${timestamp}</div>
-      </div>
       <div class="sticky-controls">
         <div class="button-group">
-          <button class="button" onclick="window.openTabsBySelector('.tab-entry')">打开全部链接</button>
-          <button class="button" onclick="window.openTabsBySelector('.views > .active .tab-entry:not(.hidden)')">打开过滤后的链接</button>
-          <button class="button" id="openSelectedButton" onclick="window.openTabsBySelector('.tab-checkbox:checked')" disabled>打开选中的链接</button>
-          <button class="button" style="background:#FF9800" onclick="window.toggleAllUrls()">一键展开所有来源</button>
+          <button class="button" onclick="window.openTabsBySelector('.tab-entry')">打开全部</button>
+          <button class="button" onclick="window.openTabsBySelector('.views > .active .tab-entry:not(.hidden)')">打开过滤后的</button>
+          <button class="button" id="openSelectedButton" onclick="window.openTabsBySelector('.tab-checkbox:checked')" disabled>打开选中</button>
+          <button class="button" style="background:#FF9800" onclick="window.toggleAllUrls()">一键展开来源</button>
           <button class="button" style="background:#673AB7" onclick="window.toggleAllGroups()">折叠/展开分组</button>
           <button class="button" style="background:#00BCD4" id="sortOrderBtn" onclick="window.toggleSortOrder()">排序: 新→旧</button>
-          <button class="button" style="background:#3F51B5" id="pageSortOrderBtn" onclick="window.togglePageSortOrder()">页数排序: 多→少</button>
+          <button class="button" style="background:#3F51B5" id="pageSortOrderBtn" onclick="window.togglePageSortOrder()">页数排序: 少→多</button>
           <button class="button" style="background:#9C27B0" onclick="window.clearMarkers()">清除下载标记</button>
           <button class="button" style="background:#F44336" onclick="window.clearVisitHistory()">清除访问历史</button>
           <button class="button" style="background:#795548" id="tagsToggleBtn" onclick="window.toggleTagsVisibility()">标签显示</button>
@@ -5361,26 +5361,30 @@ document.addEventListener("DOMContentLoaded", () => {
             <option value="7">7列</option>
             <option value="8">8列</option>
           </select>
+          <button class="button" style="background:#455A64" id="searchToggleBtn" onclick="window.toggleSearchPanel()">🔍 搜索</button>
         </div>
-        <div class="search-container" style="position: relative; display: flex; align-items: center;">
-          <input type="text" class="search-input" placeholder="搜索..." oninput="window.searchTabs(this.value)" style="padding-right: 110px; width: 100%;">
-          <div style="position: absolute; right: 15px; display: flex; align-items: center; gap: 10px;">
-            <span id="clearSearchBtn" title="清空搜索" onclick="window.searchTabs('')" style="cursor: pointer; color: #666; font-size: 18px; user-select: none; display: none; margin-top: -2px;">✕</span>
-            <span id="searchResultCount" style="font-size: 13px; font-weight: bold; color: #2196F3; display: none; white-space: nowrap;"></span>
+        <div class="search-panel" id="searchPanel">
+          <div class="search-container" style="position: relative; display: flex; align-items: center;">
+            <input type="text" class="search-input" placeholder="搜索..." oninput="window.searchTabs(this.value)" onkeydown="if(event.key==='Escape'){window.toggleSearchPanel(false);}" style="padding-right: 110px; width: 100%;">
+            <div style="position: absolute; right: 15px; display: flex; align-items: center; gap: 10px;">
+              <span id="clearSearchBtn" title="清空搜索" onclick="window.searchTabs('')" style="cursor: pointer; color: #666; font-size: 18px; user-select: none; display: none; margin-top: -2px;">✕</span>
+              <span id="searchResultCount" style="font-size: 13px; font-weight: bold; color: #2196F3; display: none; white-space: nowrap;"></span>
+            </div>
           </div>
         </div>
       </div>
       <div class="view-controls">
+        <div class="side-stats"><div><strong>总链接数:</strong> ${tabCount}</div><div><strong>保存时间:</strong> ${timestamp}</div></div>
         <button class="view-button" data-view="recent">最新</button>
         <button class="view-button" data-view="bySaveTime">按保存时间分组</button>
-        <button class="view-button active" data-view="byCustomGroup">按自定义分组</button>
+        <button class="view-button" data-view="byCustomGroup">按自定义分组</button>
         <button class="view-button" data-view="byTabGroup">按标签组</button>
         <button class="view-button" data-view="byRulesUnvisited">未访问(聚合)</button>
         <button class="view-button" data-view="byRulesUnvisitedInGroup">未访问(组内)</button>
         <button class="view-button" data-view="grouped">按域名分组</button>
         <button class="view-button" data-view="byDownloaded" style="border-left: 4px solid #4CAF50;">✓ 已下载</button>
         <button class="view-button" data-view="byNotDownloaded" style="border-left: 4px solid #F44336;">✗ 未下载</button>
-        <button class="view-button" data-view="byUnchecked" style="border-left: 4px solid #9E9E9E;">⚪ 未勾选</button>
+        <button class="view-button active" data-view="byUnchecked" style="border-left: 4px solid #9E9E9E;">⚪ 未勾选</button>
         <div class="side-toggle">
           <button type="button" class="side-toggle-button" id="utagsLinkToggleBtn" onclick="window.toggleUtagsLinking()">
             HTML联动UT标签
@@ -5403,7 +5407,7 @@ document.addEventListener("DOMContentLoaded", () => {
           <div class="thumb-content"><div class="export-thumb-grid">${links.map((link, i) => generateThumbnailEntry(link, i + 1)).join('')}</div></div>
         </div>
         <div class="tabs-container" id="bySaveTime">${bySaveTimeHTML}</div>
-        <div class="tabs-container active" id="byCustomGroup">${customGroupsHTML}</div>
+        <div class="tabs-container" id="byCustomGroup">${customGroupsHTML}</div>
         <div class="tabs-container" id="byTabGroup">
           <div class="tab-group">
             <div class="group-header" onclick="window.toggleGroup(this)">
@@ -5435,7 +5439,7 @@ document.addEventListener("DOMContentLoaded", () => {
         </div>
         <div class="tabs-container" id="byDownloaded"></div>
         <div class="tabs-container" id="byNotDownloaded"></div>
-        <div class="tabs-container" id="byUnchecked"></div>
+        <div class="tabs-container active" id="byUnchecked"></div>
       </div>
       
       <!-- 高级大图预览弹窗（复刻manager showPreviewModalV2）-->
@@ -5472,7 +5476,7 @@ document.addEventListener("DOMContentLoaded", () => {
         })(ALL_TABS_DATA, location.pathname);
         const STORAGE_KEY = 'tabSaverVisitedLinks_' + _urlHash;
         let currentSortOrder = 'desc'; // 'desc' = 新→旧(默认), 'asc' = 旧→新
-        let currentPageSortOrder = 'desc'; // 'off' = 关闭, 'asc' = 少→多, 'desc' = 多→少(默认)
+        let currentPageSortOrder = 'asc'; // 'off' = 关闭, 'asc' = 少→多(默认), 'desc' = 多→少
         let isThumbMode = false;
 
         const DEFAULT_DOWNLOADED_UTAG = 'E脚本下载';
@@ -5820,18 +5824,116 @@ document.addEventListener("DOMContentLoaded", () => {
           });
           const btn = document.getElementById('openSelectedButton');
           btn.disabled = checkedIds.size === 0;
-          btn.textContent = checkedIds.size > 0 ? \`打开选中的 (\${checkedIds.size})\` : '打开选中的链接';
+          btn.textContent = checkedIds.size > 0 ? \`打开选中 (\${checkedIds.size})\` : '打开选中';
         };
 
-        window.toggleTabSelection = (checkbox) => {
+        // Shift+点击 连续多选：锚点记录上一次点选的条目，按 id 在当前视图内定位
+        let _selectAnchor = null;
+
+        // 列表视图与缩略图视图在 DOM 里各存一份同 id 副本，只取当前真正显示出来的那一份
+        function getSelectableEntries(viewEl) {
+          return Array.from(viewEl.querySelectorAll('.tab-entry')).filter(e => e.offsetParent !== null);
+        }
+
+        // 从锚点到当前条目整段按同一状态勾选；成功返回 true
+        function applyRangeSelection(entry, view, wantChecked, sourceCheckbox) {
+          if (!_selectAnchor || _selectAnchor.viewId !== view.id) return false;
+          const entries = getSelectableEntries(view);
+          const anchorEntry = entries.find(e => e.dataset.id === _selectAnchor.id);
+          if (!anchorEntry) return false;
+
+          // 按 DOM 顺序决定起点/终点，不依赖数组下标
+          const anchorFirst = anchorEntry === entry ||
+            !!(anchorEntry.compareDocumentPosition(entry) & Node.DOCUMENT_POSITION_FOLLOWING);
+          const startEntry = anchorFirst ? anchorEntry : entry;
+          const endEntry = anchorFirst ? entry : anchorEntry;
+
+          let inRange = false;
+          for (let i = 0; i < entries.length; i++) {
+            if (entries[i] === startEntry) inRange = true;
+            if (inRange) {
+              const cb = entries[i].querySelector('.tab-checkbox');
+              if (cb) cb.checked = wantChecked;
+            }
+            if (entries[i] === endEntry) break;
+          }
+
+          // 兜底：被点的那张必须落为目标状态，任何情况下都不能漏
+          const targetCb = entry.querySelector('.tab-checkbox');
+          if (targetCb) targetCb.checked = wantChecked;
+          window.updateSelectionState(sourceCheckbox || targetCb);
+          return true;
+        }
+
+        window.toggleTabSelection = (checkbox, ev) => {
+          const entry = checkbox.closest('.tab-entry');
+          const view = entry ? entry.closest('.views > div') : null;
+
+          // Shift 勾选：锚点到当前整段同步；锚点保持不变，可连续扩选
+          if (ev && ev.shiftKey && entry && view && applyRangeSelection(entry, view, checkbox.checked, checkbox)) {
+            return;
+          }
+
           window.updateSelectionState(checkbox);
+          if (entry && view) {
+            _selectAnchor = { viewId: view.id, id: entry.dataset.id };
+          }
         };
+
+        // 卡片上的链接、按钮、勾选框、快照、打开条数控件等保持原样，不参与整卡点选
+        // 判定复用 window.isCardActionTarget（见下方「点击卡片空白处 = 勾选」）
+        function isEntryActionTarget(target, entry) {
+          if (typeof window.isCardActionTarget === 'function') return window.isCardActionTarget(target, entry);
+          return !!target.closest('input, a, button, select, textarea, label');
+        }
+
+        // 按住 Shift 点卡片空白处时，阻止浏览器把 Shift 点击当成「扩展文字选区」
+        document.addEventListener('mousedown', (e) => {
+          if (!e.shiftKey) return;
+          const entry = e.target.closest('.tab-entry');
+          if (!entry || isEntryActionTarget(e.target, entry)) return;
+          e.preventDefault();
+        }, true);
+
+        // Shift+点击整张卡片 = 从锚点整段选中
+        document.addEventListener('click', (e) => {
+          if (!e.shiftKey || e.button !== 0) return;
+          const entry = e.target.closest('.tab-entry');
+          if (!entry || isEntryActionTarget(e.target, entry)) return;
+          const view = entry.closest('.views > div');
+          const cb = entry.querySelector('.tab-checkbox');
+          if (!view || !cb) return;
+          e.preventDefault();
+          // 整卡 Shift 点击一律「加选」这一段（与 Windows 资源管理器一致）
+          const wantChecked = true;
+          if (applyRangeSelection(entry, view, wantChecked, cb)) return;
+          // 还没有锚点时，先选中当前这张并把它设为锚点
+          cb.checked = wantChecked;
+          window.updateSelectionState(cb);
+          _selectAnchor = { viewId: view.id, id: entry.dataset.id };
+        });
 
         window.clearTabSelection = () => {
           document.querySelectorAll('.tab-checkbox').forEach(cb => {
             cb.checked = false;
           });
           window.updateSelectionState();
+        };
+
+        // 搜索框收进按钮：点一下弹出，再点（或按 Esc）收起并清空过滤
+        window.toggleSearchPanel = (force) => {
+          const panel = document.getElementById('searchPanel');
+          const btn = document.getElementById('searchToggleBtn');
+          if (!panel) return;
+          const open = typeof force === 'boolean' ? force : !panel.classList.contains('open');
+          panel.classList.toggle('open', open);
+          if (btn) btn.style.background = open ? '#1565C0' : '#455A64';
+          if (open) {
+            const input = panel.querySelector('.search-input');
+            if (input) { input.focus(); input.select(); }
+          } else {
+            window.searchTabs('');
+          }
         };
 
         window.searchTabs = (q) => {
@@ -6062,6 +6164,8 @@ document.addEventListener("DOMContentLoaded", () => {
 
         document.addEventListener('click', (e) => {
           if (e.button !== 0) return;
+          // 按住 Shift 的整卡点击归「连续多选」处理，这里不能再反选一次
+          if (e.shiftKey) return;
           const target = e.target;
           if (!target || !target.closest) return;
           const entry = target.closest('.tab-entry');
@@ -6073,6 +6177,9 @@ document.addEventListener("DOMContentLoaded", () => {
           if (!checkbox) return;
           checkbox.checked = !checkbox.checked;
           window.updateSelectionState(checkbox);
+          // 普通点选后把这张记为 Shift 连选的锚点
+          const view = entry.closest('.views > div');
+          if (view) _selectAnchor = { viewId: view.id, id: entry.dataset.id };
         });
 
         window.toggleAllUrls = () => {
@@ -6460,7 +6567,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
           return '<div class="tab-entry" data-id="' + link.id + '" data-url="' + escapeText(link.url) + '" data-title="' + escapeText(link.title || link.page || '') + '" data-page-count="' + pageCount + '" data-tags="' + escapeText(link.tags ? link.tags.map(t => t.text).join(' ') : '') + '">' +
             '<span class="tab-index">' + (i + 1) + '</span>' +
-            '<input type="checkbox" class="tab-checkbox" onclick="window.toggleTabSelection(this)">' +
+            '<input type="checkbox" class="tab-checkbox" onclick="window.toggleTabSelection(this, event)">' +
             '<div class="tab-content">' +
             '<a href="' + escapeText(link.url) + '" class="tab-title" target="_blank" onmousedown="window.handleLinkClick(event)">' + escapeText(link.url) + '</a>' +
             '<div class="tab-url-container">' +
@@ -6507,7 +6614,7 @@ document.addEventListener("DOMContentLoaded", () => {
             tagsDisplay = '<div class="export-thumb-tags">' + link.tags.map(t => '<span style="background:' + t.color + '; color:' + (t.textColor || '#ffffff') + ';">' + escapeText(t.text) + '</span>').join('') + '</div>';
           }
           return '<div class="tab-entry export-thumb-entry" data-id="' + link.id + '" data-url="' + escapeText(link.url) + '" data-title="' + escapeText(link.title || link.page || '') + '" data-page-count="' + pageCount + '" data-tags="' + escapeText(link.tags ? link.tags.map(t => t.text).join(' ') : '') + '">' +
-            '<input type="checkbox" class="tab-checkbox export-thumb-checkbox" onclick="window.toggleTabSelection(this)">' +
+            '<input type="checkbox" class="tab-checkbox export-thumb-checkbox" onclick="window.toggleTabSelection(this, event)">' +
             '<span class="export-thumb-index">#' + (i + 1) + '</span>' +
             snapshotHTML +
             '<div class="export-thumb-detail">' +
@@ -6822,11 +6929,13 @@ document.addEventListener("DOMContentLoaded", () => {
         document.addEventListener('DOMContentLoaded', () => {
           applyState();
           initTagsVisibility();
+          // 默认视图为「未勾选」，该容器初始为空，需要在这里生成内容
+          regenerateByMarker('Unchecked');
           window.hydrateSnapshots();
           updateExportSortButtons();
           updateUtagsLinkToggleUI();
           updateSideMarkerStats();
-          // 应用默认页数排序（多→少）
+          // 应用默认页数排序（少→多）
           resortActiveView();
           // 恢复缩略图模式
           if (localStorage.getItem('exportThumbMode') === '1') {
